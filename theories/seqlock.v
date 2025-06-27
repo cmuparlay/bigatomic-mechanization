@@ -115,14 +115,15 @@ Section seqlock.
               (* Ever version in the list is at least the lower bound *)
               ⌜Forall (Nat.le ver) vers⌝ ∗
               (* For version version [ver'] and value [v] at index [j] *)
-              ([∗ list] j ↦ ver' ; v ∈ vers ; vdst', 
+              ([∗ list] j ↦ ver' ; v ∈ vers ; vdst',
+                  mono_nat_lb_own γ ver' ∗ 
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
-                  ⌜Nat.Even ver'⌝ →
+                  (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
                     ∃ vs,
                       own γₕ (◯ {[Nat.div2 ver' := to_agree vs]}) ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
-                      ⌜vs !! (i + j)%nat = Some v⌝) }}}.
+                      ⌜vs !! (i + j)%nat = Some v⌝)) }}}.
   Proof.
     iIntros "%Hle %Hvdst #Hinv #Hlb !> %Φ Hdst HΦ".
     iLöb as "IH" forall (i vdst ver Hle Hvdst) "Hlb".
@@ -188,7 +189,8 @@ Section seqlock.
         { iPureIntro. constructor; first done.
           eapply Forall_impl; eauto. lia. }
         { simpl. iSplitR "Hcons".
-          - iIntros "%Heven".
+          - iSplitR; first done. 
+            iIntros "%Heven".
             iExists vs. iFrame.
             iSplitL; first done.
             iPureIntro.
@@ -230,6 +232,7 @@ Section seqlock.
           eapply Forall_impl; eauto. lia. }
         { simpl. iSplitR "Hcons".
           - rewrite -Nat.even_spec.
+            iSplitR; first done.
             iIntros "%Heven". congruence.
           - rewrite big_sepL2_mono; first done.
             iIntros (k ver''' v') "_ _ H".
@@ -253,14 +256,15 @@ Section seqlock.
               (* Ever version in the list is at least the lower bound *)
               ⌜Forall (Nat.le ver) vers⌝ ∗
               (* For version version [ver'] and value [v] at index [j] *)
-              ([∗ list] i ↦ ver' ; v ∈ vers ; vdst', 
+              ([∗ list] i ↦ ver' ; v ∈ vers ; vdst',
+                  mono_nat_lb_own γ ver' ∗ 
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
-                  ⌜Nat.Even ver'⌝ →
+                  (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
                     ∃ vs,
                       own γₕ (◯ {[Nat.div2 ver' := to_agree vs]}) ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
-                      ⌜vs !! i = Some v⌝) }}}.
+                      ⌜vs !! i = Some v⌝)) }}}.
   Proof.
      iIntros "%Hvdst #Hinv #Hlb !> %Φ Hdst HΦ".
      replace dst with (dst +ₗ 0) by apply Loc.add_0.
@@ -289,13 +293,14 @@ Section seqlock.
               ⌜Forall (Nat.le ver) vers⌝ ∗
               (* For version version [ver'] and value [v] at index [j] *)
               ([∗ list] i ↦ ver' ; v ∈ vers ; vdst, 
+                  mono_nat_lb_own γ ver' ∗
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
-                  ⌜Nat.Even ver'⌝ →
+                  (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
                     ∃ vs,
                       own γₕ (◯ {[Nat.div2 ver' := to_agree vs]}) ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
-                      ⌜vs !! i = Some v⌝) }}}.
+                      ⌜vs !! i = Some v⌝)) }}}.
   Proof.
     iIntros "%Hpos #Hinv #Hlb %Φ !# _ HΦ".
     rewrite /array_clone.
