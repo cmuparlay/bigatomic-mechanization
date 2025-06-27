@@ -236,7 +236,7 @@ Section seqlock.
             by rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r.  }
   Qed.
 
-  Lemma wp_array_copy_to γ γₕ (version dst src : loc) (n i : nat) vdst ver :
+  Lemma wp_array_copy_to γ γₕ (version dst src : loc) (n : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     length vdst = n →
       inv seqlockN (seqlock_inv γ γₕ version src n) -∗
@@ -272,7 +272,45 @@ Section seqlock.
      by rewrite Nat.sub_0_r.
   Qed.
 
-  
+  Lemma wp_array_clone γ γₕ (version src : loc) (n : nat) ver :
+    n > 0 →
+      inv seqlockN (seqlock_inv γ γₕ version src n) -∗
+        (* The current version is at least [ver] *)
+        mono_nat_lb_own γ ver -∗
+          {{{ True }}}
+            array_clone #src #n
+          {{{ vers vdst (dst : loc), RET #dst; 
+              (* the destination array contains some values [vdst'] *)
+              dst ↦∗ vdst ∗
+              ⌜length vdst = n⌝ ∗
+              (* Vers is a monotonically increasing list of versions *)
+              ⌜StronglySorted Nat.le vers⌝ ∗
+              (* Ever version in the list is at least the lower bound *)
+              ⌜Forall (Nat.le ver) vers⌝ ∗
+              (* For version version [ver'] and value [v] at index [j] *)
+              ([∗ list] i ↦ ver' ; v ∈ vers ; vdst, 
+                  (* If the version is even, then the value read then was valid, as the lock was unlocked *)
+                  ⌜Nat.Even ver'⌝ →
+                  (* Then there exists some list of values associated with that version *)
+                    ∃ vs,
+                      own γₕ (◯ {[Nat.div2 ver' := to_agree vs]}) ∗
+                      (* Where the value stored at index [i + j] is exactly [v] *)
+                      ⌜vs !! i = Some v⌝) }}}.
+  Proof.
+    iIntros "%Hpos #Hinv #Hlb %Φ !# _ HΦ".
+    rewrite /array_clone.
+    wp_pures.
+    wp_alloc dst as "Hdst".
+    { lia. }
+    wp_pures.
+    wp_apply (wp_array_copy_to with "[//] [//] [$]").
+    { rewrite length_replicate. lia. }
+    iIntros (vers vdst') "(Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
+    wp_pures.
+    iModIntro.
+    iApply ("HΦ" with "[$Hdst $Hcons]").
+    by iPureIntro.
+  Qed.
 
   Lemma even_inj n : Z.Even (Z.of_nat n) ↔ Nat.Even n.
   Proof.
