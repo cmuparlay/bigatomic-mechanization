@@ -276,15 +276,13 @@ Section seqlock.
           ⌜vs = vs'⌝.
   Proof.
     iIntros (Hlen) "H● H◯".
-    iCombine "H● H◯" gives %[Hincl Hvalid]%auth_both_valid_discrete.
+    iCombine "H● H◯" gives %[Hincl _]%auth_both_valid_discrete.
     rewrite lookup_included in Hincl.
     iPureIntro.
-    (* apply leibniz_equiv, (inj (fmap to_agree)). *)
     apply list_eq_same_length with (n := length vs); try done.
     intros i x y Hlt.
     specialize (Hincl i).
-    do 2 rewrite lookup_map_seq_0 in Hincl.
-    do 2 rewrite list_lookup_fmap in Hincl.
+    do 2 rewrite lookup_map_seq_0 list_lookup_fmap in Hincl.
     intros Hx Hy.
     rewrite Hx Hy /= in Hincl.
     by rewrite Some_included_total to_agree_included_L in Hincl.
@@ -470,6 +468,43 @@ Section seqlock.
     - by rewrite Loc.add_0.
   Qed.
 
+  Lemma even_iff_not_odd n : Nat.Even n ↔ ¬ (Nat.Odd n).
+  Proof.
+    split.
+    - rewrite /not. apply Nat.Even_Odd_False.
+    - intros Hnotodd. by pose proof Nat.Even_or_Odd n as [Heven | Hodd].
+  Qed.
+
+  Lemma odd_iff_not_even n : Nat.Odd n ↔ ¬ (Nat.Even n).
+  Proof.
+    split.
+    - rewrite /not. intros. by eapply Nat.Even_Odd_False.
+    - intros Hnotodd. by pose proof Nat.Even_or_Odd n as [Heven | Hodd].
+  Qed.
+
+  Lemma div2_def n : Nat.div2 (S (S n)) = S (Nat.div2 n).
+  Proof. done. Qed.
+
+  Require Import iris.bi.lib.fractional.
+
+  (* Lemma list_eq_sep {A} (xs ys : list A) : ([∗ list] x; y ∈ xs; ys, ⌜x = y⌝) ⊢ ⌜xs = ys⌝. *)
+  
+
+  Lemma array_frac_add l dq dq' vs vs' : length vs = length vs' → l ↦∗{dq} vs -∗ l ↦∗{dq'} vs' -∗ l ↦∗{dq ⋅ dq'} vs ∗ ⌜vs = vs'⌝.
+  Proof.
+    iIntros (Hlen) "Hl Hl'".
+    iInduction vs as [|v vs] "IH" forall (l vs' Hlen).
+    - symmetry in Hlen. rewrite length_zero_iff_nil in Hlen. simplify_list_eq. by iSplit.
+    - destruct vs' as [|v' vs']; simplify_list_eq.
+      repeat rewrite array_cons.
+      iDestruct "Hl" as "[Hl Hls]".
+      iDestruct "Hl'" as "[Hl' Hls']".
+      iCombine "Hl Hl'" as "Hl" gives %[_ <-].
+      iFrame.
+      iPoseProof ("IH" with "[//] [$] [$]") as "[Hl <-]".
+      by iFrame.
+  Qed.
+
   Lemma write_spec (γ γₕ : gname) (version dst src : loc) dq (vs' : list val) :
     inv seqlockN (seqlock_inv γ γₕ version dst (length vs')) -∗
       src ↦∗{dq} vs' -∗
@@ -517,6 +552,12 @@ Section seqlock.
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
             iDestruct "Hdst" as "[Hdst Hdst']".
+            iMod (own_update with "●Hγₕ") as "[●Hγₕ ◯Hγₕ']".
+            { apply auth_update_alloc. 
+              eapply core_id_local_update; last reflexivity.
+              apply _. }
+            iPoseProof "◯Hγₕ'" as "#◯Hγₕ'".
+            rewrite left_id.
             iMod ("Hcl" with "[-Hsrc Hdst Hauth' HΦ]") as "_".
             { rewrite /seqlock_inv.
               destruct (Nat.even (S ver)) eqn:Heven''.
@@ -539,10 +580,20 @@ Section seqlock.
               - by rewrite -Nat.even_spec.
               - rewrite -Nat.Even_succ -Nat.even_spec. congruence. }
             iMod "Hlock" as "[Hγ Hdst'']".
+            iDestruct (mono_nat_auth_own_agree with "Hγ Hauth'") as %[_ ->].
             wp_store.
+            iPoseProof (map_seq_agree with "Hγₕ ◯Hγₕ'") as "->".
+            { by rewrite Hhistory'' last_length Hhistory'. }
+            iCombine "Hdst Hdst''" gives "Hdst".
             iMod ("Hcl" with "[-]") as "_".
-            { rewrite /seqlock_inv.
-              iExists (S ver), history, vs. rewrite Heven. by iFrame. }
+            { rewrite /seqlock_inv. iExists (S (S ver)), (history' ++ [vs']), vs'.
+              simpl Nat.even. rewrite Heven'. rewrite last_snoc. iFrame "∗ %".
+              rewrite last
+              simpl.
+            cbn beta delta iota in *.
+
+              change (Nat.div2 (S (S _))) with (S (Nat.div2 _)).
+              cbn. rewrite Heven. iFrame. by iFrame. }
                
                
                
