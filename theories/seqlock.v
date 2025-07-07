@@ -19,40 +19,39 @@ Add Zify BinOp Op_Nat_div.
 
 Require Import stdpp.sorting.
 
-Definition write : val :=
-  rec: "write" "version" "dst" "src" "n" :=
+Definition write (n : nat) : val :=
+  rec: "write" "version" "dst" "src" :=
     let: "ver" := !"version" in
     if: "ver" `rem` #2 = #1 then
       (* Loop if locked *)
-      "write" "version" "dst" "src" "n"
+      "write" "version" "dst" "src"
     else
       if: CAS "version" "ver" (#1 + "ver") then
         (* Lock was successful *)
         (* Perform update *)
-        array_copy_to "dst" "src" "n";;
+        array_copy_to "dst" "src" #n;;
         (* Unlock *)
         "version" <- #2 + "ver"
       else
         (* Loop if CAS failed, meaning we tried and failed to lock *)
-        "write" "version" "dst" "src" "n".
+        "write" "version" "dst" "src".
 
-Definition read : val :=
-  rec: "read" "version" "src" "n" :=
+Definition read (n : nat) : val :=
+  rec: "read" "version" "src" :=
     let: "ver" := !"version" in
     if: "ver" `rem` #2 = #1 then
       (* If locked, retry *)
-      "read" "version" "src" "n"
+      "read" "version" "src"
     else
       (* Unlocked *)
-      let: "data" := array_clone "src" "n" in
+      let: "data" := array_clone "src" #n in
       if: !"version" = "ver" then
         (* Data was not changed, so our read was valid *)
         "data"
       else
         (* Data was locked and updated since we loaded *)
         (* Retry *)
-        "read" "version" "src" "n".
-
+        "read" "version" "src".
 
 Definition history := gmap nat (agree (list val)).
 
@@ -522,7 +521,7 @@ Section seqlock.
     inv seqlockN (seqlock_inv γ γₕ version dst (length vs')) -∗
       src ↦∗{dq} vs' -∗
         <<{ ∀∀ vs, value γₕ vs  }>> 
-          write #version #dst #src #(length vs') @ ↑N
+          write (length vs') #version #dst #src @ ↑N
         <<{ value γₕ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
     iIntros "#Hinv Hsrc %Φ AU".
@@ -629,7 +628,7 @@ Section seqlock.
     n > 0 →
       inv seqlockN (seqlock_inv γ γₕ version src n) -∗
         <<{ ∀∀ vs, value γₕ vs  }>> 
-          read #version #src #n @ ↑N
+          read n #version #src @ ↑N
         <<{ ∃∃ copy : loc, value γₕ vs | RET #copy; copy ↦∗ vs }>>.
   Proof.
     iIntros "%Hpos #Hinv %Φ AU".
@@ -745,5 +744,6 @@ Section seqlock.
       wp_pures.
       iApply ("IH" with "AU").
   Qed.
+
 
 End seqlock.
