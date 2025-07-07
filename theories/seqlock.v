@@ -132,10 +132,10 @@ Section seqlock.
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γ (1/2) ver ∗ l ↦∗ vs ∗ ⌜last history = Some vs⌝
+        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γ 1 ver ∗ l ↦∗ vs ∗ ⌜last history = Some vs⌝
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        history_auth_own γₕ (1/4) history ∗ mono_nat_auth_own γ (1/4) ver ∗ l ↦∗{# 1/2} vs.
+        history_auth_own γₕ (1/4) history ∗ mono_nat_auth_own γ (1/2) ver ∗ l ↦∗{# 1/2} vs.
 
   Lemma wp_array_copy_to' γ γₕ (version dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
@@ -266,23 +266,16 @@ Section seqlock.
             by rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r.  }
   Qed.
 
-  Lemma map_seq_agree γₕ vs vs' :
-    length vs = length vs' →
-      own γₕ (● map_seq O (to_agree <$> vs)) -∗
-        own γₕ (◯ map_seq O (to_agree <$> vs')) -∗
-          ⌜vs = vs'⌝.
+  Lemma map_seq_agree (vs vs' : list (list val))  :
+    map_seq 0 (to_agree <$> vs) ≡@{gmap _ _} map_seq 0 (to_agree <$> vs') → vs = vs'.
   Proof.
-    iIntros (Hlen) "H● H◯".
-    iCombine "H● H◯" gives %[Hincl _]%auth_both_valid_discrete.
-    rewrite lookup_included in Hincl.
-    iPureIntro.
-    apply list_eq_same_length with (n := length vs); try done.
-    intros i x y Hlt.
-    specialize (Hincl i).
-    do 2 rewrite lookup_map_seq_0 list_lookup_fmap in Hincl.
-    intros Hx Hy.
-    rewrite Hx Hy /= in Hincl.
-    by rewrite Some_included_total to_agree_included_L in Hincl.
+    intros Heq.
+    apply list_eq.
+    intros i.
+    apply leibniz_equiv.
+    apply (inj (fmap to_agree)).
+    repeat rewrite -list_lookup_fmap.
+    by do 2 rewrite -lookup_map_seq_0.
   Qed.
 
   Lemma wp_array_copy_to γ γₕ (version dst src : loc) (n : nat) vdst ver :
@@ -363,18 +356,29 @@ Section seqlock.
     by iPureIntro.
   Qed.
 
-  Lemma even_inj n : Z.Even (Z.of_nat n) ↔ Nat.Even n.
+  Lemma Even_inj n : Z.Even (Z.of_nat n) ↔ Nat.Even n.
   Proof.
     split.
     - intros [k H]. exists (Z.to_nat k). lia.
     - intros [k H]. exists k. lia.
   Qed.
 
-  Lemma odd_inj n : Nat.Odd n ↔ Z.Odd (Z.of_nat n).
+  Lemma Odd_inj n : Nat.Odd n ↔ Z.Odd (Z.of_nat n).
   Proof.
     split.
     - intros [k H]. exists k. lia.
     - intros [k H]. exists (Z.to_nat k). lia.
+  Qed.
+
+
+  Lemma even_inj n : Z.even (Z.of_nat n) = Nat.even n.
+  Proof.
+    destruct (Z.even n) eqn:H, (Nat.even n) eqn:H'; auto.
+    - rewrite Z.even_spec Even_inj in H.
+      by rewrite -not_true_iff_false Nat.even_spec in H'.
+    - rewrite Nat.even_spec in H'.
+      by rewrite -not_true_iff_false Z.even_spec Even_inj in H.
+      rewrite -bool_decide_not in H'.
   Qed.
 
   Lemma wp_array_copy_to_half' γ γₕ version dst src (vs vs' : list val) i n dq :
@@ -502,9 +506,9 @@ Section seqlock.
   Lemma write_spec (γ γₕ : gname) (version dst src : loc) dq (vs' : list val) :
     inv seqlockN (seqlock_inv γ γₕ version dst (length vs')) -∗
       src ↦∗{dq} vs' -∗
-        <<{ ∀∀ vs, value γ vs  }>> 
+        <<{ ∀∀ vs, value γₕ vs  }>> 
           write #version #dst #src #(length vs') @ ↑N
-        <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
+        <<{ value γₕ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
     iIntros "#Hinv Hsrc %Φ AU".
     iLöb as "IH".
@@ -526,13 +530,148 @@ Section seqlock.
         iApply ("IH" with "Hsrc AU").
       + wp_pures.
         wp_bind (CmpXchg _ _ _)%E.
-        iInv seqlockN as "(%ver' & %history' & %vs'' & >Hver' & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
-        destruct (Nat.even ver') eqn:Heven'.
-        * iMod "Hlock" as "(Hγₕ & Hγ & Hdst & %Hcons')".
-          destruct (decide (ver = ver')) as [<- | Hne].
-          -- wp_cmpxchg_suc.
-            rewrite /value.
-            iMod "AU" as (vs''') "[(%ver'' & Hγ' & #Hfrag) [_ Hconsume]]".
+        iInv seqlockN as "(%ver' & %history' & %vs'' & >Hver & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
+        destruct (decide (ver = ver')) as [<- | Hne].
+        * rewrite Heven.
+          iMod "Hlock" as "(Hγₕ & Hγ & Hdst & %Hcons')".
+          wp_cmpxchg_suc.
+          iDestruct "Hγₕ" as "[Hγₕ Hγₕ']".
+          iDestruct "Hdst" as "[Hdst Hdst']".
+          replace (1 / 2 / 2)%Qp with (1/4)%Qp by compute_done.
+          iMod (mono_nat_own_update (S ver) with "Hγ") as "[[Hγ Hγ'] #Hlb]".
+          { lia. }
+          iMod ("Hcl" with "[Hver Hγₕ' Hdst' Hγ']") as "_".
+          { rewrite /seqlock_inv. iExists (S ver), history', vs''.
+            destruct (Nat.even (S ver)) eqn:Heven''.
+            { exfalso. eapply Nat.Even_Odd_False.
+              - by rewrite -Nat.even_spec.
+              - by rewrite Nat.Odd_succ -Nat.even_spec. }
+            rewrite -> Nat.Odd_div2 by now rewrite Nat.Odd_succ -Nat.even_spec.
+            change 1%Z with (Z.of_nat 1).
+            rewrite -Nat2Z.inj_add /=.
+            iFrame "∗ %". }
+          iModIntro.
+          wp_pures.
+          wp_apply (wp_array_copy_to_half _ _ _ _ _ vs'' vs' with "[//] [$] [-]"); try done.
+          iIntros "!> [Hdst Hsrc]".
+          wp_pures.
+          iInv seqlockN as "(%ver' & %history'' & %vs''' & >Hver & >%Hlen'' & >%Hhistory'' & Hlock)" "Hcl".
+          destruct (Nat.even ver') eqn:Heven''.
+          { iMod "Hlock" as "(_ & Hγ' & _)". by iDestruct (mono_nat_auth_own_agree with "Hγ Hγ'") as %[Hq _]. }
+          iMod "Hlock" as "(Hγₕ' & Hγ' & Hdst')".
+          iPoseProof (array_frac_add with "Hdst Hdst'") as "[Hdst <-]".
+          { done. }
+          rewrite dfrac_op_own Qp.half_half.
+          wp_store.
+          change 2%Z with (Z.of_nat 2). simplify_eq.
+          iDestruct (mono_nat_auth_own_agree with "Hγ Hγ'") as %[_ <-].
+          iCombine "Hγ Hγ'" as "Hγ".
+          iMod (mono_nat_own_update (S (S ver)) with "Hγ") as "[Hγ #Hlb']".
+          { lia. }
+          iCombine "Hγₕ Hγₕ'" gives %<-%auth_auth_dfrac_op_inv%map_seq_agree.
+          iCombine "Hγₕ Hγₕ'" as "Hγₕ".
+          rewrite Qp.quarter_quarter.
+          iMod "AU" as (vs''') "[(%history'' & Hγₕ' & %Hagree) [_ Hconsume]]".
+          iCombine "Hγₕ Hγₕ'" gives %<-%auth_auth_dfrac_op_inv%map_seq_agree.
+          iCombine "Hγₕ Hγₕ'" as "Hγₕ".
+          assert (Some vs'' = Some vs''') as [=<-] by (transitivity (last history'); eauto).
+          iMod (history_auth_update vs' with "Hγₕ") as "[[●Hγₕ ●Hγₕ'] #◯Hγₕ]".
+          iMod ("Hconsume" with "[$●Hγₕ']") as "HΦ".
+          { by rewrite last_snoc. }
+          rewrite -Nat2Z.inj_add /=.
+          simplify_eq.
+          iMod ("Hcl" with "[-HΦ Hsrc]") as "_".
+          { rewrite /seqlock_inv. iFrame. iExists (history' ++ [vs']), vs'.
+            iSplit; first done. simpl. rewrite Heven. iSplit.
+            { rewrite last_length. auto. }
+            iFrame. by rewrite last_snoc. }
+          iModIntro.
+          by iApply "HΦ".
+        * wp_cmpxchg_fail.
+          { intros Heq. simplify_eq. }
+          iMod ("Hcl" with "[-Hsrc AU]") as "_".
+          { iFrame "∗ %". }
+          iModIntro.
+          wp_pures.
+          by wp_apply ("IH" with "[$]").
+      - wp_load.
+        iMod ("Hcl" with "[-Hsrc AU]") as "_".
+        { iFrame "∗ %". rewrite Heven. iFrame. }
+        iModIntro.
+        wp_pures.
+        case_bool_decide as H.
+        { wp_pures. by wp_apply ("IH" with "[$]"). }
+        replace (ver `rem` 2)%Z with (ver `mod` 2)%Z in H by lia.
+        rewrite Zmod_even -Even_inj in H. rewrite 
+        assert (ver `rem` 2 ≠ 1)%Z.
+        { intros Hne. apply H. by repeat f_equal. }
+        replace (ver `rem` 2)%Z with (ver `mod` 2)%Z in H by lia.
+        { lia. }
+        
+        by wp_apply ("IH" with "[$]").
+    
+    
+          -- wp_cmpxchg_fail.
+             { intros Heq. simplify_eq. }
+             iMod ("Hcl" with "[-Hsrc AU]") as "_".
+             { iFrame. rewrite Heven'. iExists history', vs''. iFrame "∗ %". }
+             iModIntro.
+             wp_pures.
+             by wp_apply ("IH" with "[$]").
+        *
+
+            
+
+             specialize (H 1).
+             rewrite /equiv /ofe_equiv in H.
+             apply (inj map_seq) in H.
+
+             rewrite -Nat2Z.inj_add /=.
+             
+
+             iPoseProof (map_seq_agree with "Hγₕ ◯Hγₕ'") as "->".
+             { by rewrite Hhistory'' last_length Hhistory'. }
+             iPoseProof (array_frac_add with "Hdst Hdst''") as "[Hdst <-]".
+             { done. }
+             rewrite dfrac_op_own Qp.half_half.
+             iMod ("Hcl" with "[-]") as "_".
+             { rewrite /seqlock_inv. iExists (S (S ver)), (history' ++ [vs']), vs'.
+               rewrite Hhistory''.
+               rewrite -> Nat.Even_div2 by now rewrite -Nat.even_spec.
+               simpl. rewrite Heven last_snoc. rewrite -> Nat.Even_div2 by now rewrite -Nat.even_spec. simpl.
+               change 2%Z with (Z.of_nat 2). rewrite -Nat2Z.inj_add /=. iFrame "∗ %".
+               iSplitR; first done.
+ 
+               - done.
+               iFrame "∗ %". iNext. change 2%Z with (Z.of_nat 2). rewrite -Nat2Z.inj_add /=. repeat iSplit; try done.
+               rewrite Heven'. rewrite last_snoc. rewrite -> Nat.Even_div2 by now rewrite -Nat.even_spec. iFrame "∗ %". simpl. 
+               rewrite Hhistory''. iFrame "∗ %". simpl. rewrite -> Nat.Even_div2 by now rewrite -Nat.even_spec. simpl. iSplitL; try done. iFrame "∗ %".
+               { admit. }
+               iNext. iSplit.
+               * iPureIntro. rewrite -> Nat.Even_div2 by now rewrite -Nat.even_spec. simpl. rewrite /Nat.div2. done.
+               rewrite last
+               simpl.
+
+             
+
+               iMod (mono_nat_own_update (S ver) with "Hγ") as "[(Hauth & Hauth' & Hauth'') #Hlb]".
+               Check mono_nat_own_update.
+               iMod mono_nat_auth_own_update.
+               
+               iFrame "∗ %".
+                first last. 
+               { by rewrite Nat.Odd_succ -Nat.even_spec.
+               rewrite 
+                
+               assert 
+               Set Printing Coercions.
+               change 1%Z with (Z.of_nat 1).
+               rewrite -Nat2Z.inj_add /=.
+               iFrame.
+               rewrite 
+               iFrame. }
+             rewrite /value.
+             iMod "AU" as (vs''') "[(%ver'' & Hγ' & #Hfrag) [_ Hconsume]]".
             iDestruct (mono_nat_auth_own_agree with "Hγ Hγ'") as %[_ <-].
             iCombine "Hγ Hγ'" as "Hγ".
             iMod (mono_nat_own_update (S ver) with "Hγ") as "[(Hauth & Hauth' & Hauth'') #Hlb]".
@@ -685,7 +824,7 @@ Section seqlock.
       iModIntro.
       wp_pures.
       case_bool_decide as Hparity'.
-      { exfalso. rewrite Nat.even_spec -even_inj -Z.even_spec in Hparity.
+      { exfalso. rewrite Nat.even_spec -Even_inj -Z.even_spec in Hparity.
         simplify_eq.
         pose proof (Zmod_even ver) as Heven.
         rewrite Hparity in Heven. lia. }
@@ -790,7 +929,7 @@ Section seqlock.
         { lia. }
         rewrite Zmod_even in Hparity''.
         destruct (Z.even ver) eqn:Heven.
-        { rewrite Z.even_spec even_inj -Nat.even_spec in Heven. congruence. }
+        { rewrite Z.even_spec Even_inj -Nat.even_spec in Heven. congruence. }
         done. }
       wp_pures.
       iApply ("IH" with "AU").
@@ -798,7 +937,7 @@ Section seqlock.
         
         assert (ver `rem` 2 = 0).
         assert (Nat.odd ver = )
-        rewrite Nat.odd_spec -even_inj -Zmod_even in Hparity.  }
+        rewrite Nat.odd_spec -Even_inj -Zmod_even in Hparity.  }
   Qed.
           destruct (decide (ver'))
           wp_pures.
@@ -819,7 +958,7 @@ Section seqlock.
           assert (Nat.even ver).
           assert (((Z.of_nat ver) mod 2)%Z ≠ 1) as Hmod.
         { intuition. apply Hparity. repeat f_equal. lia. }
-        rewrite odd_inj -Z.odd_spec in Hlocked.
+        rewrite Odd_inj -Z.odd_spec in Hlocked.
         by rewrite Zmod_odd Hlocked in Hmod. }
           Check auth_frag_valid.
 
@@ -853,7 +992,7 @@ Section seqlock.
       
       assert (((Z.of_nat ver) mod 2)%Z ≠ 1) as Hmod.
         { intuition. apply Hparity. repeat f_equal. lia. }
-        rewrite odd_inj -Z.odd_spec in Hlocked.
+        rewrite Odd_inj -Z.odd_spec in Hlocked.
         by rewrite Zmod_odd Hlocked in Hmod. }
       by wp_smart_apply "IH".
     - wp_load.
@@ -868,7 +1007,7 @@ Section seqlock.
       +  by wp_smart_apply "IH".
       { assert (((Z.of_nat ver) mod 2)%Z = 1) as Hmod.
         { intuition. apply Hparity. repeat f_equal. lia. }
-        rewrite odd_inj -Z.odd_spec in Hlocked.
+        rewrite Odd_inj -Z.odd_spec in Hlocked.
         by rewrite Zmod_odd Hlocked in Hmod. }
       by wp_smart_apply "IH".
   Qed.
