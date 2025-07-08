@@ -532,15 +532,15 @@ Section seqlock.
       by iFrame.
   Qed.
 
-  Definition is_seqlock (v : val) (γₕ : gname) (n : nat) : iProp Σ :=
-    ∃ (version dst : loc) (γᵥ : gname),
-      ⌜v = (#version, #dst)%V⌝ ∗ inv seqlockN (seqlock_inv γᵥ γₕ version dst n).
+  Definition is_seqlock (v : val) (γ : gname) (n : nat) : iProp Σ :=
+    ∃ (version dst : loc) (γₕ γᵥ : gname),
+      ⌜v = (#version, #dst)%V⌝ ∗ inv seqlockN (seqlock_inv γ γᵥ γₕ version dst n).
 
   Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
     length vs = n → n > 0 →
       {{{ src ↦∗{dq} vs }}}
         new_big_atomic n #src
-      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_seqlock v γᵥ n ∗ value γᵥ vs  }}}.
+      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_seqlock v γ n ∗ value γ vs  }}}.
   Proof.
     iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
     wp_rec.
@@ -551,14 +551,15 @@ Section seqlock.
     iIntros (l) "[Hl Hsrc]".
     wp_alloc version as "Hversion".
     wp_pures.
+    iMod (ghost_var_alloc vs) as "(%γ & Hγ & Hγ')".
     iMod (mono_nat_own_alloc 0) as "(%γᵥ & Hγᵥ & _)".
-    iMod (own_alloc (● map_seq O (to_agree <$> [vs]))) as "(%γₕ & Hγₕ & Hγₕ')".
+    iMod (own_alloc (● map_seq O (to_agree <$> [vs]))) as "[%γₕ Hγₕ]".
     { by apply auth_auth_valid, singleton_valid. }
-    iMod (inv_alloc seqlockN _ (seqlock_inv γᵥ γₕ version l n) with "[Hl Hversion Hγᵥ Hγₕ']") as "H".
+    iMod (inv_alloc seqlockN _ (seqlock_inv γ γᵥ γₕ version l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ]") as "H".
     { rewrite /seqlock_inv. iExists O, [vs], vs.
       simpl. by iFrame "∗ %". }
     iModIntro.
-    iApply ("HΦ" $! (#version, #l)%V γₕ).
+    iApply ("HΦ" $! (#version, #l)%V γ).
     by iFrame.
   Qed.
 
