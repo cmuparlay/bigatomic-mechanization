@@ -20,42 +20,44 @@ Add Zify BinOp Op_Nat_div.
 Require Import stdpp.sorting.
 
 Definition write (n : nat) : val :=
-  rec: "write" "version" "dst" "src" :=
+  rec: "write" "l" "src" :=
+    let: "version" := Fst "l" in
     let: "ver" := !"version" in
     if: "ver" `rem` #2 = #1 then
       (* Loop if locked *)
-      "write" "version" "dst" "src"
+      "write" "l" "src"
     else
       if: CAS "version" "ver" (#1 + "ver") then
         (* Lock was successful *)
         (* Perform update *)
-        array_copy_to "dst" "src" #n;;
+        array_copy_to (Snd "l") "src" #n;;
         (* Unlock *)
         "version" <- #2 + "ver"
       else
         (* Loop if CAS failed, meaning we tried and failed to lock *)
-        "write" "version" "dst" "src".
+        "write" "l" "src".
 
 Definition read (n : nat) : val :=
-  rec: "read" "version" "src" :=
+  rec: "read" "l" :=
+    let: "version" := Fst "l" in
     let: "ver" := !"version" in
     if: "ver" `rem` #2 = #1 then
       (* If locked, retry *)
-      "read" "version" "src"
+      "read" "l"
     else
       (* Unlocked *)
-      let: "data" := array_clone "src" #n in
+      let: "data" := array_clone (Snd "l") #n in
       if: !"version" = "ver" then
         (* Data was not changed, so our read was valid *)
         "data"
       else
         (* Data was locked and updated since we loaded *)
         (* Retry *)
-        "read" "version" "src".
+        "read" "l".
 
-Definition history := gmap nat (agree (list val)).
+Definition history := gmap nat $ agree $ list val.
 
-Definition historyUR := authUR $ gmapUR nat (agreeR (listO valO)).
+Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
 
 Class seqlockG (Σ : gFunctors) := {
   seqlock_heapGS :: heapGS Σ;
@@ -333,7 +335,7 @@ Section seqlock.
      by rewrite Nat.sub_0_r.
   Qed.
 
-  Lemma wp_array_clone γ γₕ (version src : loc) (n : nat) ver :
+  Lemma wp_array_clone_wk γ γₕ (version src : loc) (n : nat) ver :
     n > 0 →
       inv seqlockN (seqlock_inv γ γₕ version src n) -∗
         (* The current version is at least [ver] *)
@@ -517,14 +519,18 @@ Section seqlock.
       by iFrame.
   Qed.
 
-  Lemma write_spec (γ γₕ : gname) (version dst src : loc) dq (vs' : list val) :
-    inv seqlockN (seqlock_inv γ γₕ version dst (length vs')) -∗
+  Definition is_seqlock (v : val) (γₕ : gname) (n : nat) : iProp Σ :=
+    ∃ (version dst : loc) (γ : gname),
+      ⌜v = (#version, #dst)%V⌝ ∗ inv seqlockN (seqlock_inv γ γₕ version dst n).
+
+  Lemma write_spec (γₕ : gname) (v : val) (src : loc) dq (vs' : list val) :
+    is_seqlock v γₕ (length vs') -∗
       src ↦∗{dq} vs' -∗
         <<{ ∀∀ vs, value γₕ vs  }>> 
-          write (length vs') #version #dst #src @ ↑N
+          write (length vs') v #src @ ↑N
         <<{ value γₕ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
-    iIntros "#Hinv Hsrc %Φ AU".
+    iIntros "(%version & %dst & %γ & -> & #Hinv) Hsrc %Φ AU".
     iLöb as "IH".
     wp_rec.
     wp_pures.
@@ -624,14 +630,14 @@ Section seqlock.
     intros Hne Heq. simplify_eq.
   Qed.
 
-  Lemma read_spec (γ γₕ : gname) (version src : loc) (n : nat) :
+  Lemma read_spec (γₕ : gname) (v : val) (n : nat) :
     n > 0 →
-      inv seqlockN (seqlock_inv γ γₕ version src n) -∗
+      is_seqlock v γₕ n -∗
         <<{ ∀∀ vs, value γₕ vs  }>> 
-          read n #version #src @ ↑N
+          read n v @ ↑N
         <<{ ∃∃ copy : loc, value γₕ vs | RET #copy; copy ↦∗ vs }>>.
   Proof.
-    iIntros "%Hpos #Hinv %Φ AU".
+    iIntros "%Hpos (%version & %src & %γ & -> & #Hinv) %Φ AU".
     iLöb as "IH".
     wp_rec. wp_pures.
     wp_bind (! _)%E.
@@ -653,7 +659,7 @@ Section seqlock.
         pose proof (Zmod_even ver) as Heven.
         rewrite Hparity in Heven. lia. }
       wp_pures.
-      wp_smart_apply (wp_array_clone with "[//] [//] [//]").
+      wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
       { done. }
       iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
       wp_pures.
@@ -745,5 +751,33 @@ Section seqlock.
       iApply ("IH" with "AU").
   Qed.
 
+  Definition new_big_atomic (n : nat) : val :=
+    λ: "src", (ref #0, array_clone "src" #n).
+
+  Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
+    length vs = n → n > 0 →
+      {{{ src ↦∗{dq} vs }}}
+        new_big_atomic n #src
+      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_seqlock v γ n ∗ value γ vs  }}}.
+  Proof.
+    iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
+    wp_rec.
+    wp_pures.
+    wp_apply (wp_array_clone with "Hsrc").
+    { auto. }
+    { lia.  }
+    iIntros (l) "[Hl Hsrc]".
+    wp_alloc version as "Hversion".
+    wp_pures.
+    iMod (mono_nat_own_alloc 0) as "(%γ & Hγ & _)".
+    iMod (own_alloc (● map_seq O (to_agree <$> [vs]))) as "(%γₕ & Hγₕ & Hγₕ')".
+    { by apply auth_auth_valid, singleton_valid. }
+    iMod (inv_alloc seqlockN _ (seqlock_inv γ γₕ version l n) with "[Hl Hversion Hγ Hγₕ']") as "H".
+    { rewrite /seqlock_inv. iExists O, [vs], vs.
+      simpl. by iFrame "∗ %". }
+    iModIntro.
+    iApply ("HΦ" $! (#version, #l)%V γₕ).
+    by iFrame.
+  Qed.
 
 End seqlock.
