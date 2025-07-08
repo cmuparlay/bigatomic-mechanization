@@ -19,6 +19,9 @@ Add Zify BinOp Op_Nat_div.
 
 Require Import stdpp.sorting.
 
+Definition new_big_atomic (n : nat) : val :=
+  λ: "src", (ref #0, array_clone "src" #n).
+
 Definition write (n : nat) : val :=
   rec: "write" "l" "src" :=
     let: "version" := Fst "l" in
@@ -523,6 +526,32 @@ Section seqlock.
     ∃ (version dst : loc) (γ : gname),
       ⌜v = (#version, #dst)%V⌝ ∗ inv seqlockN (seqlock_inv γ γₕ version dst n).
 
+  Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
+    length vs = n → n > 0 →
+      {{{ src ↦∗{dq} vs }}}
+        new_big_atomic n #src
+      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_seqlock v γ n ∗ value γ vs  }}}.
+  Proof.
+    iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
+    wp_rec.
+    wp_pures.
+    wp_apply (wp_array_clone with "Hsrc").
+    { auto. }
+    { lia.  }
+    iIntros (l) "[Hl Hsrc]".
+    wp_alloc version as "Hversion".
+    wp_pures.
+    iMod (mono_nat_own_alloc 0) as "(%γ & Hγ & _)".
+    iMod (own_alloc (● map_seq O (to_agree <$> [vs]))) as "(%γₕ & Hγₕ & Hγₕ')".
+    { by apply auth_auth_valid, singleton_valid. }
+    iMod (inv_alloc seqlockN _ (seqlock_inv γ γₕ version l n) with "[Hl Hversion Hγ Hγₕ']") as "H".
+    { rewrite /seqlock_inv. iExists O, [vs], vs.
+      simpl. by iFrame "∗ %". }
+    iModIntro.
+    iApply ("HΦ" $! (#version, #l)%V γₕ).
+    by iFrame.
+  Qed.
+
   Lemma write_spec (γₕ : gname) (v : val) (src : loc) dq (vs' : list val) :
     is_seqlock v γₕ (length vs') -∗
       src ↦∗{dq} vs' -∗
@@ -749,35 +778,6 @@ Section seqlock.
         done. }
       wp_pures.
       iApply ("IH" with "AU").
-  Qed.
-
-  Definition new_big_atomic (n : nat) : val :=
-    λ: "src", (ref #0, array_clone "src" #n).
-
-  Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
-    length vs = n → n > 0 →
-      {{{ src ↦∗{dq} vs }}}
-        new_big_atomic n #src
-      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_seqlock v γ n ∗ value γ vs  }}}.
-  Proof.
-    iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
-    wp_rec.
-    wp_pures.
-    wp_apply (wp_array_clone with "Hsrc").
-    { auto. }
-    { lia.  }
-    iIntros (l) "[Hl Hsrc]".
-    wp_alloc version as "Hversion".
-    wp_pures.
-    iMod (mono_nat_own_alloc 0) as "(%γ & Hγ & _)".
-    iMod (own_alloc (● map_seq O (to_agree <$> [vs]))) as "(%γₕ & Hγₕ & Hγₕ')".
-    { by apply auth_auth_valid, singleton_valid. }
-    iMod (inv_alloc seqlockN _ (seqlock_inv γ γₕ version l n) with "[Hl Hversion Hγ Hγₕ']") as "H".
-    { rewrite /seqlock_inv. iExists O, [vs], vs.
-      simpl. by iFrame "∗ %". }
-    iModIntro.
-    iApply ("HΦ" $! (#version, #l)%V γₕ).
-    by iFrame.
   Qed.
 
 End seqlock.
