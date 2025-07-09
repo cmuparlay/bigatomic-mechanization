@@ -80,7 +80,7 @@ Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO natO.
 Class seqlockG (Σ : gFunctors) := {
   seqlock_heapGS :: heapGS Σ;
   seqlock_historyUR :: inG Σ historyUR;
-  seqlock_requestRegUR : inG Σ requestRegUR;
+  seqlock_requestRegUR :: inG Σ requestRegUR;
   seqlock_mono_natG :: mono_natG Σ;
   seqlock_ghost_varG_vals :: ghost_varG Σ (list val);
   seqlock_ghost_varG_bool :: ghost_varG Σ bool;
@@ -96,13 +96,13 @@ Section seqlock.
 
   Definition writeN := N .@ "write".
 
-  Definition history_auth_own γᵥ (q : Qp) history := own γᵥ (●{#q} map_seq 0 (to_agree <$> history)).
+  Definition history_auth_own γᵥ (q : Qp) (history : list (list val)) := own γᵥ (●{#q} map_seq 0 (to_agree <$> history)).
 
   Definition value γᵥ (vs : list val) : iProp Σ := ghost_var γᵥ (1/2) vs.
 
-  Definition history_frag_own γₕ i value := own γₕ (◯ {[i := to_agree value]}).
+  Definition history_frag_own γₕ i (value : list val) := own γₕ (◯ {[i := to_agree value]}).
 
-  Lemma history_auth_update value γₕ history :
+  Lemma history_auth_update (value : list val) γₕ (history : list (list val)) :
     history_auth_own γₕ 1 history ==∗
       history_auth_own γₕ 1 (history ++ [value]) ∗ history_frag_own γₕ (length history) value.
   Proof.
@@ -151,24 +151,119 @@ Section seqlock.
     by rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs''.
   Qed.
 
-  (* Definition AU_write (Φ : val → iProp Σ) γᵥ (q : Z) : iProp Σ := *)
-    (* AU <{ ∃∃ p : Z, value γᵥ p }> @ ⊤ ∖ ↑N, ∅ <{ value γᵥ q, COMM Φ #() }>. *)
+  Definition registry γᵣ (requests : list (gname * nat)) :=
+    own γᵣ (● map_seq O (to_agree <$> requests)).
+
+  (* Fragmental ownership over a single request *)
+  Definition registered γᵣ i (γₗ : gname) (m : nat) :=
+   own γᵣ (◯ ({[i := to_agree (γₗ, m)]})).
+
+  Lemma registry_update γₗ m γ requests : 
+    registry γ requests ==∗ 
+      registry γ (requests ++ [(γₗ, m)]) ∗ registered γ (length requests) γₗ m.
+  Proof.
+    iIntros "H●".
+    rewrite /registry /registered.
+    iMod (own_update with "H●") as "[H● H◯]".
+    { eapply auth_update_alloc.
+      apply alloc_singleton_local_update 
+        with 
+          (i := length requests)
+          (x := to_agree (γₗ, m)).
+      { rewrite lookup_map_seq_None length_fmap. by right. }
+      constructor. }
+    replace (length requests) with (O + length (to_agree <$> requests)) at 1 
+          by (now rewrite length_fmap).
+    rewrite -map_seq_snoc fmap_snoc. by iFrame.
+  Qed.
+
+  (* The authoritative view of the request registry must agree with its fragment *)
+  Lemma registry_agree (requests : list (gname * Z)) i request : 
+    ✓ (● map_seq O (to_agree <$> requests) ⋅ ◯ ({[i := to_agree request]})) →
+        requests !! i = Some request.
+  Proof.
+    intros [Hincl _]%auth_both_valid_discrete.
+    apply dom_included in Hincl as Hdom.
+    rewrite dom_singleton_L singleton_subseteq_l in Hdom.
+    rewrite lookup_included in Hincl.
+    specialize Hincl with i.
+    rewrite option_included in Hincl.
+    destruct Hincl as [Hnone | (a & b & H & H' & Heq)].
+    { by rewrite lookup_insert in Hnone. }
+    rewrite lookup_insert in H. simplify_eq.
+    rewrite lookup_map_seq_0 list_lookup_fmap_Some in H'.
+    destruct H' as ([γₜ' m'] & Hlookup & ->).
+    destruct Heq as [Heq | Hle].
+    - apply (inj to_agree) in Heq.
+      by simplify_eq.
+    - rewrite to_agree_included in Hle.
+      by simplify_eq.
+  Qed.
 
   Definition AU_write (Φ : val → iProp Σ) γ (vs' : list val) (src : loc) dq : iProp Σ :=
        AU <{ ∃∃ vs : list val, value γ vs }>
             @ ⊤ ∖ ↑N, ∅
           <{ value γ vs', COMM src ↦∗{dq} vs' -∗ Φ #() }>.
 
-  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src : loc) (dq : dfrac) : iProp Σ :=
-      (Φ #() ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ (∃ vs', AU_write Φ γ vs' src dq) ∗ ghost_var γₗ (1/2) true)
-    ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b). (* The failing write has linearized and returned *)
+  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
+      ((src ↦∗{dq} vs' -∗ Φ #()) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+    ∨ (£ 1 ∗ AU_write Φ γ vs' src dq ∗ ghost_var γₗ (1/2) true)
+    ∨ (token γₜ ∗ ghost_var γₗ (1/2) false). (* The failing write has linearized and returned *)
 
   Definition registry_inv γ ver (requests : list (gname * nat)) : iProp Σ :=
     [∗ list] '(γₗ, ver') ∈ requests, (* For every thread/proph id *)
         ghost_var γₗ (1/2) (bool_decide (ver < ver')) ∗
-        ∃ (Φ : val → iProp Σ) (γₜ : gname) (src : loc) (dq : dfrac),
-          inv writeN (write_inv Φ γ γₗ γₜ src dq).
+        ∃ (Φ : val → iProp Σ) (γₜ : gname) (src : loc) (dq : dfrac) (vs : list val),
+          inv writeN (write_inv Φ γ γₗ γₜ src dq vs).
+
+  (* It is possible to linearize pending writers while maintaing the registry invariant *)
+  Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
+    ghost_var γ (1/2) vs -∗
+      registry_inv γ ver requests ={⊤ ∖ ↑seqlockN}=∗ 
+        registry_inv γ (S ver) requests ∗ ∃ vs' : list val, ghost_var γ (1/2) vs'.
+  Proof.
+    iIntros "Hγ Hreqs".
+    iInduction requests as [|[γₗ ver'] reqs'] "IH" forall (vs).
+    - by iFrame.
+    - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
+      iDestruct "Hreqs" as "[(Hlin & %Φ & %γₜ & %src & %dq & %vs' & #Hwinv) Hreqs']";
+      iMod ("IH" with "Hγ Hreqs'") as "(Hreqs' & %vs'' & Hγ)".
+      iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      + iCombine "Hlin Hlin'" gives %[_ Hless].
+        iMod ("Hclose" with "[HΦ Hlin]") as "_".
+        { iLeft. rewrite Hless. iFrame. }
+        rewrite bool_decide_eq_false in Hless.
+        assert (ver ≥ ver') as Hge by lia.
+        iFrame "∗ #".
+        by case_bool_decide; first lia.
+      + iCombine "Hlin Hlin'" gives %[_ Hless].
+        destruct (decide (ver' = S ver)) as [-> | Hne].
+        * iMod (ghost_var_update_halves false with "Hlin Hlin'") as "[Hlin Hlin']".
+          iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
+          iMod "AU" as (n') "[Hγ' [_ Hconsume]]".
+          iMod (ghost_var_update_halves vs' with "Hγ Hγ'") as "[Hγ Hγ']".
+          iFrame.
+          rewrite -> bool_decide_eq_false_2 by lia.
+          iFrame "∗ #".
+          iMod ("Hconsume" with "Hγ") as "HΦ".
+          iMod ("Hclose" with "[-]") as "_".
+          { iLeft. iFrame. }
+          done.
+        * iMod ("Hclose" with "[Hcredit AU Hlin']") as "_".
+          { iRight. iLeft. iFrame. }
+          iFrame.
+          rewrite Hless.
+          rewrite bool_decide_eq_true in Hless.
+          rewrite -> bool_decide_eq_true_2 by lia.
+          by iFrame "∗ #".
+      + iCombine "Hlin Hlin'" gives %[_ Hless].
+        iMod ("Hclose" with "[Htok Hlin]") as "_".
+        { do 2 iRight. rewrite Hless. iFrame. }
+        rewrite bool_decide_eq_false in Hless.
+        assert (ver ≥ ver') as Hge by lia.
+        iFrame "∗ #".
+        by case_bool_decide; first lia.
+  Qed.
 
   Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (version l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (history : list (list val)) (vs : list val) requests,
@@ -188,56 +283,6 @@ Section seqlock.
       else 
         (* If locked, have only read-only access to ensure one updater *)
         history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ l ↦∗{# 1/2} vs.
-
-  Lemma wp_loop_while γ γᵥ γₕ γᵣ (version l : loc) (n ver : nat) :
-    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version l n) -∗
-      {{{ mono_nat_lb_own γᵥ ver }}}
-        loop_while #version #ver
-      {{{ ver', RET #(); ⌜ver < ver'⌝ ∗ mono_nat_lb_own γᵥ ver' }}}.
-  Proof.
-    iIntros "#Hinv %Φ !# #Hlb HΦ".
-    iLöb as "IH".
-    wp_rec.
-    wp_pures.
-    wp_bind (! _)%E.
-    iInv seqlockN as "(%ver' & %history & %vs & %registry & Hregistry & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
-    wp_load.
-    destruct (Nat.even ver') eqn:Heven.
-    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
-      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
-      iClear "Hlb".
-      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod ("Hcl" with "[-HΦ]") as "_".
-      { iFrame. rewrite Heven. by iFrame. }
-      iModIntro.
-      wp_pures.
-      destruct (decide (ver = ver')) as [-> | Hne].
-      + rewrite -> bool_decide_eq_true_2 by congruence.
-        wp_pures.
-        iApply ("IH" with "[$]").
-      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
-        wp_pures.
-        iModIntro.
-        iApply ("HΦ" with "[$Hlb]").
-        iPureIntro. lia.
-    - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hl)".
-      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
-      iClear "Hlb".
-      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod ("Hcl" with "[-HΦ]") as "_".
-      { iFrame. rewrite Heven. by iFrame. }
-      iModIntro.
-      wp_pures.
-      destruct (decide (ver = ver')) as [-> | Hne].
-      + rewrite -> bool_decide_eq_true_2 by congruence.
-        wp_pures.
-        iApply ("IH" with "[$]").
-      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
-        wp_pures.
-        iModIntro.
-        iApply ("HΦ" with "[$Hlb]").
-        iPureIntro. lia.
-  Qed.
 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (version dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
@@ -638,6 +683,56 @@ Section seqlock.
     by iFrame.
   Qed.
 
+  Lemma wp_loop_while γ γᵥ γₕ γᵣ (version l : loc) (n ver : nat) :
+    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version l n) -∗
+      {{{ mono_nat_lb_own γᵥ ver }}}
+        loop_while #version #ver
+      {{{ ver', RET #(); ⌜ver < ver'⌝ ∗ mono_nat_lb_own γᵥ ver' }}}.
+  Proof.
+    iIntros "#Hinv %Φ !# #Hlb HΦ".
+    iLöb as "IH".
+    wp_rec.
+    wp_pures.
+    wp_bind (! _)%E.
+    iInv seqlockN as "(%ver' & %history & %vs & %registry & Hregistry & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    wp_load.
+    destruct (Nat.even ver') eqn:Heven.
+    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
+      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
+      iClear "Hlb".
+      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
+      iMod ("Hcl" with "[-HΦ]") as "_".
+      { iFrame. rewrite Heven. by iFrame. }
+      iModIntro.
+      wp_pures.
+      destruct (decide (ver = ver')) as [-> | Hne].
+      + rewrite -> bool_decide_eq_true_2 by congruence.
+        wp_pures.
+        iApply ("IH" with "[$]").
+      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
+        wp_pures.
+        iModIntro.
+        iApply ("HΦ" with "[$Hlb]").
+        iPureIntro. lia.
+    - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hl)".
+      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
+      iClear "Hlb".
+      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
+      iMod ("Hcl" with "[-HΦ]") as "_".
+      { iFrame. rewrite Heven. by iFrame. }
+      iModIntro.
+      wp_pures.
+      destruct (decide (ver = ver')) as [-> | Hne].
+      + rewrite -> bool_decide_eq_true_2 by congruence.
+        wp_pures.
+        iApply ("IH" with "[$]").
+      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
+        wp_pures.
+        iModIntro.
+        iApply ("HΦ" with "[$Hlb]").
+        iPureIntro. lia.
+  Qed.
+
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
     is_seqlock v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
@@ -645,15 +740,15 @@ Section seqlock.
           write (length vs') v #src @ ↑N
         <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
-    iIntros "(%version & %dst & %γᵥ & %γₕ & -> & #Hinv) Hsrc %Φ AU".
+    iIntros "(%version & %dst & %γᵥ & %γₕ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".
     iLöb as "IH".
     wp_rec.
     wp_pures.
     wp_bind (! _)%E.
-    iInv seqlockN as "(%ver & %history & %vs & >Hγᵥ & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv seqlockN as "(%ver & %history & %vs & %registry & Hregistry & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    wp_load.
     destruct (Nat.even ver) eqn:Heven.
-    - iMod "Hlock" as "(Hγ & Hγₕ & Hver & Hdst & %Hcons)".
-      wp_load.
+    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons)".
       iMod ("Hcl" with "[-AU Hsrc]") as "_".
       { rewrite /seqlock_inv.
         iExists ver, history, vs. rewrite Heven. by iFrame. }
