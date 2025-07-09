@@ -187,7 +187,57 @@ Section seqlock.
         ghost_var γ (1/2) vs ∗ history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ l ↦∗ vs ∗ ⌜last history = Some vs⌝
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        history_auth_own γ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ l ↦∗{# 1/2} vs.
+        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ l ↦∗{# 1/2} vs.
+
+  Lemma wp_loop_while γ γᵥ γₕ γᵣ (version l : loc) (n ver : nat) :
+    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version l n) -∗
+      {{{ mono_nat_lb_own γᵥ ver }}}
+        loop_while #version #ver
+      {{{ ver', RET #(); ⌜ver < ver'⌝ ∗ mono_nat_lb_own γᵥ ver' }}}.
+  Proof.
+    iIntros "#Hinv %Φ !# #Hlb HΦ".
+    iLöb as "IH".
+    wp_rec.
+    wp_pures.
+    wp_bind (! _)%E.
+    iInv seqlockN as "(%ver' & %history & %vs & %registry & Hregistry & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    wp_load.
+    destruct (Nat.even ver') eqn:Heven.
+    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
+      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
+      iClear "Hlb".
+      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
+      iMod ("Hcl" with "[-HΦ]") as "_".
+      { iFrame. rewrite Heven. by iFrame. }
+      iModIntro.
+      wp_pures.
+      destruct (decide (ver = ver')) as [-> | Hne].
+      + rewrite -> bool_decide_eq_true_2 by congruence.
+        wp_pures.
+        iApply ("IH" with "[$]").
+      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
+        wp_pures.
+        iModIntro.
+        iApply ("HΦ" with "[$Hlb]").
+        iPureIntro. lia.
+    - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hl)".
+      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
+      iClear "Hlb".
+      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
+      iMod ("Hcl" with "[-HΦ]") as "_".
+      { iFrame. rewrite Heven. by iFrame. }
+      iModIntro.
+      wp_pures.
+      destruct (decide (ver = ver')) as [-> | Hne].
+      + rewrite -> bool_decide_eq_true_2 by congruence.
+        wp_pures.
+        iApply ("IH" with "[$]").
+      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
+        wp_pures.
+        iModIntro.
+        iApply ("HΦ" with "[$Hlb]").
+        iPureIntro. lia.
+  Qed.
 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (version dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
