@@ -39,7 +39,7 @@ Definition write : val :=
 (* LP stepping requests. *)
 (* Map the process id of every failing write to a triple [(id, γₜ, v)]*)
 Definition requestReg := gmap nat (agree (gname * Z)).
-Definition requestRegUR := authUR $ gmapUR nat (agreeR (prodO (prodO gnameO gnameO) ZO)).
+Definition requestRegUR := authUR $ gmapUR nat (agreeR (prodO gnameO ZO)).
 
 Class rwcasG Σ := {
   rwcas_requestUR :: inG Σ requestRegUR;
@@ -78,31 +78,31 @@ Section rwcas.
     ∨ (£ 1 ∗ (∃ q : Z, AU_write Φ γ q) ∗ ghost_var γₗ (1/2) false)
     ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b). (* The failing write has linearized and returned *)
 
-  Definition registry_inv γ n (requests : list (gname * gname * Z)) : iProp Σ :=
-    [∗ list] '(γₗ, γₜ, m) ∈ requests, (* For every thread/proph id *)
+  Definition registry_inv γ n (requests : list (gname * Z)) : iProp Σ :=
+    [∗ list] '(γₗ, m) ∈ requests, (* For every thread/proph id *)
         ghost_var γₗ (1/2) (bool_decide (m = n)) ∗
-        ∃ Φ : val → iProp Σ,
+        ∃ (Φ : val → iProp Σ) (γₜ : gname),
           inv writeN (write_inv Φ γ γₗ γₜ).
 
   (* Authoritative ownership over request registry *)
-  Definition registry γᵣ (requests : list (gname * gname * Z)) :=
+  Definition registry γᵣ (requests : list (gname * Z)) :=
     own γᵣ (● map_seq O (to_agree <$> requests)).
 
   (* Fragmental ownership over a single request *)
-  Definition registered γᵣ i (γₗ γₜ : gname) (m : Z) :=
-   own γᵣ (◯ ({[i := to_agree (γₗ, γₜ, m)]})).
+  Definition registered γᵣ i (γₗ : gname) (m : Z) :=
+   own γᵣ (◯ ({[i := to_agree (γₗ, m)]})).
 
   Definition rwcas_inv γᵣ l 'γ : iProp Σ :=
-    (∃ (n : Z) (requests : list (gname * gname * Z)), 
+    (∃ (n : Z) (requests : list (gname * Z)), 
       l ↦ #n ∗
       ghost_var γ (1/2) n ∗ (* implementation location *)
       registry γᵣ requests ∗ (* Authoritative ownership over request registry *)
       registry_inv γ n requests)%I.
 
       (* Frame-preserving updates permit allocation of a new request *)
-  Lemma registry_update γₗ γₜ m γ requests : 
+  Lemma registry_update γₗ m γ requests : 
     registry γ requests ==∗ 
-      registry γ (requests ++ [(γₗ, γₜ, m)]) ∗ registered γ (length requests) γₗ γₜ m.
+      registry γ (requests ++ [(γₗ, m)]) ∗ registered γ (length requests) γₗ m.
   Proof.
     iIntros "H●".
     rewrite /registry /registered.
@@ -111,7 +111,7 @@ Section rwcas.
       apply alloc_singleton_local_update 
         with 
           (i := length requests)
-          (x := to_agree (γₗ, γₜ, m)).
+          (x := to_agree (γₗ, m)).
       { rewrite lookup_map_seq_None length_fmap. by right. }
       constructor. }
     replace (length requests) with (O + length (to_agree <$> requests)) at 1 
@@ -120,7 +120,7 @@ Section rwcas.
   Qed.
 
   (* The authoritative view of the request registry must agree with its fragment *)
-  Lemma registry_agree (requests : list (gname * gname * Z)) i request : 
+  Lemma registry_agree (requests : list (gname * Z)) i request : 
     ✓ (● map_seq O (to_agree <$> requests) ⋅ ◯ ({[i := to_agree request]})) →
         requests !! i = Some request.
   Proof.
@@ -149,21 +149,21 @@ Section rwcas.
         registry_inv γ p requests ∗ ∃ q : Z, ghost_var γ (1/2) q.
   Proof.
     iIntros "Hγ Hreqs".
-    iInduction requests as [|[[γₗ γₜ] m'] reqs'] "IH" forall (m).
+    iInduction requests as [|[γₗ m'] reqs'] "IH" forall (m).
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
-      iDestruct "Hreqs" as "[(Hlin & %Φ & #Hwinv) Hreqs']";
+      iDestruct "Hreqs" as "[(Hlin & %Φ & %γₜ & #Hwinv) Hreqs']";
       iMod ("IH" with "Hγ Hreqs'") as "(Hreqs' & %q & Hγ)".
       iInv writeN as "[[HΦ >[%b Hlin']] | [(>Hcredit & [%q' AU] & >Hlin') | (>Htok & %b & >Hlin')]]" "Hclose".
       + iMod (ghost_var_update_halves (bool_decide (m' = p)) with "Hlin Hlin'") as "[Hlin Hlin']".
         iMod ("Hclose" with "[HΦ Hlin]") as "_".
         { iLeft. iFrame. }
-        iFrame. by iExists _.
+        by iFrame "∗ #".
       + iMod (ghost_var_update_halves (bool_decide (m' = p)) with "Hlin Hlin'") as "[Hlin Hlin']".
         iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
         iMod "AU" as (n') "[Hγ' [_ Hclose']]".
         iMod (ghost_var_update_halves q' with "Hγ Hγ'") as "[Hγ Hγ']".
-        iFrame. iExists Φ.
+        iFrame. iExists Φ, _.
         iMod ("Hclose'" with "Hγ") as "HΦ".
         iMod ("Hclose" with "[-]") as "_".
         { iLeft. iFrame. }
@@ -171,7 +171,7 @@ Section rwcas.
       + iMod (ghost_var_update_halves (bool_decide (m' = p)) with "Hlin Hlin'") as "[Hlin Hlin']".
         iMod ("Hclose" with "[Htok Hlin]") as "_".
         { do 2 iRight. iFrame. }
-        iFrame. by iExists _.
+        by iFrame "∗ #".
   Qed.
 
   (* Predicate describing that a value is a RWCAS cell *)
@@ -263,16 +263,15 @@ Section rwcas.
           inv Hres.
       + iMod token_alloc as "[%γₜ Hγₜ]".
         iMod (ghost_var_alloc false) as "(%γₗ & Hlin & Hlin')".
-        iMod (registry_update γₗ γₜ m γᵣ reqs with "H●") as "[H● #H◯]".
+        iMod (registry_update γₗ m γᵣ reqs with "H●") as "[H● #H◯]".
         iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ) with "[AU Hcredit Hlin']") as "#Hwinv".
         { rewrite /write_inv. iRight. iLeft. iFrame. }
         iMod ("Hclose" with "[-Hp Hγₜ]") as "_".
-        { iExists _, (reqs ++ [(γₗ, γₜ, m)]).
+        { iExists _, (reqs ++ [(γₗ, m)]).
           iFrame.
           rewrite big_sepL_singleton.
           case_bool_decide; simplify_eq.
-          iFrame.
-          by iExists _. }
+          iFrame "∗ #". }
         iModIntro.
         wp_bind (Resolve _ _ _)%E.
         iInv rwcasN as (n' reqs') "(Hl & Hγ & H● & Hreqs')" "Hclose".

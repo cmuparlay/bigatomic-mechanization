@@ -22,7 +22,6 @@ Require Import stdpp.sorting.
 Definition new_big_atomic (n : nat) : val :=
   λ: "src", (ref #0, array_clone "src" #n).
 
-
 Definition loop_while : val :=
   rec: "loop" "l" "v" :=
     if: !"l" = "v" then "loop" "l" "v"
@@ -49,7 +48,9 @@ Definition write (n : nat) : val :=
         if: "ver'" = #1 + "ver" then
           (* If another writer is updating this version, wait until it is done *)
           loop_while "version" "ver'"
-        else #().
+        else
+          (* Otherwise, we have already been linearized by someone else *)
+          #().
 
 Definition read (n : nat) : val :=
   rec: "read" "l" :=
@@ -73,11 +74,17 @@ Definition history := gmap nat $ agree $ list val.
 
 Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
 
+Definition requestReg := gmap nat $ agree (gname * Z).
+Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO (prodO (prodO dfracO gnameO) gnameO) natO.
+
 Class seqlockG (Σ : gFunctors) := {
   seqlock_heapGS :: heapGS Σ;
   seqlock_historyUR :: inG Σ historyUR;
+  seqlock_requestRegUR : inG Σ requestRegUR;
   seqlock_mono_natG :: mono_natG Σ;
   seqlock_ghost_varG_vals :: ghost_varG Σ (list val);
+  seqlock_ghost_varG_bool :: ghost_varG Σ bool;
+  seqlock_tokenG :: tokenG Σ;
 }.
 
 Section seqlock.
@@ -86,6 +93,8 @@ Section seqlock.
   Context (N : namespace).
 
   Definition seqlockN := N .@ "seqlock".
+
+  Definition writeN := N .@ "write".
 
   Definition history_auth_own γᵥ (q : Qp) history := own γᵥ (●{#q} map_seq 0 (to_agree <$> history)).
 
@@ -144,10 +153,22 @@ Section seqlock.
 
   (* Definition AU_write (Φ : val → iProp Σ) γᵥ (q : Z) : iProp Σ := *)
     (* AU <{ ∃∃ p : Z, value γᵥ p }> @ ⊤ ∖ ↑N, ∅ <{ value γᵥ q, COMM Φ #() }>. *)
-    
-  Definition AU_read γᵥ Φ : iProp Σ :=
-    AU <{ ∃∃ (vs : list val), value γᵥ vs }> @ ⊤ ∖ ↑N, ∅ 
-       <{ ∃ l : loc, value γᵥ vs, COMM Φ #() }>.
+
+  Definition AU_write (Φ : val → iProp Σ) γ (vs' : list val) (src : loc) dq : iProp Σ :=
+       AU <{ ∃∃ vs : list val, value γ vs }>
+            @ ⊤ ∖ ↑N, ∅
+          <{ value γ vs', COMM src ↦∗{dq} vs' -∗ Φ #() }>.
+
+  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src : loc) (dq : dfrac) : iProp Σ :=
+      (Φ #() ∗ ghost_var γₗ (1/2) true) (* The failing write has already been linearized and its atomic update has been consumed *)
+    ∨ (£ 1 ∗ (∃ vs', AU_write Φ γ vs' src dq) ∗ ghost_var γₗ (1/2) false)
+    ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b). (* The failing write has linearized and returned *)
+
+  Definition registry_inv γ ver (requests : list (gname * gname * Z)) : iProp Σ :=
+    [∗ list] '(γₗ, γₜ, ver') ∈ requests, (* For every thread/proph id *)
+        ghost_var γₗ (1/2) (bool_decide (ver' ≥ ver)) ∗
+        ∃ (Φ : val → iProp Σ) (src : loc) (dq : dfrac),
+          inv writeN (write_inv Φ γ γₗ γₜ src dq).
 
   Definition seqlock_inv (γ γᵥ γₕ : gname) (version l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (history : list (list val)) (vs : list val),
@@ -563,21 +584,21 @@ Section seqlock.
     by iFrame.
   Qed.
 
-  Lemma write_spec (γₕ : gname) (v : val) (src : loc) dq (vs' : list val) :
-    is_seqlock v γₕ (length vs') -∗
+  Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
+    is_seqlock v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
-        <<{ ∀∀ vs, value γₕ vs  }>> 
+        <<{ ∀∀ vs, value γ vs  }>> 
           write (length vs') v #src @ ↑N
-        <<{ value γₕ vs' | RET #(); src ↦∗{dq} vs' }>>.
+        <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
-    iIntros "(%version & %dst & %γᵥ & -> & #Hinv) Hsrc %Φ AU".
+    iIntros "(%version & %dst & %γᵥ & %γₕ & -> & #Hinv) Hsrc %Φ AU".
     iLöb as "IH".
     wp_rec.
     wp_pures.
     wp_bind (! _)%E.
     iInv seqlockN as "(%ver & %history & %vs & >Hγᵥ & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     destruct (Nat.even ver) eqn:Heven.
-    - iMod "Hlock" as "(Hγₕ & Hver & Hdst & %Hcons)".
+    - iMod "Hlock" as "(Hγ & Hγₕ & Hver & Hdst & %Hcons)".
       wp_load.
       iMod ("Hcl" with "[-AU Hsrc]") as "_".
       { rewrite /seqlock_inv.
