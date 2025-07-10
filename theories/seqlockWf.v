@@ -807,42 +807,36 @@ Section seqlock.
         iClear "Hlb".
         iIntros (ver') "[%Hless #Hlb]".
         iInv seqlockN as "(%ver'' & %history' & %vs'' & %registry' & >Hreg & Hreginv & >Hver & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
-        destruct (Nat.even ver'') eqn:Heven''.
-        * iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons')".
-          iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
-          iMod (lc_fupd_elim_later with "Hcredit' Hreginv") as "Hreginv".
-          iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
-          (* Consider which state our helping request is in*)
-          iPoseProof (big_sepL_lookup_acc _ _ _ _ Hagree with "Hreginv") as "[[Hlin _] Hrest]".
-          iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit' & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
-          { iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
-            { do 2 iRight. iFrame. }
-            iMod ("Hcl" with "[-HΦ Hsrc Hcredit]") as "_".
-            { iFrame. rewrite Heven''. iExists history', vs''. iFrame.
-              iNext. iSplit; last done. iApply "Hrest". iFrame "∗ #". }
-            iMod (lc_fupd_elim_later with "Hcredit HΦ") as "HΦ".
-            iModIntro.
-            iApply ("HΦ" with "Hsrc"). }
-          { (* Our request is still pending *)
+        iMod (lc_fupd_elim_later with "Hcredit' Hreginv") as "Hreginv".
+        iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
+        (* Consider which state our helping request is in*)
+        iPoseProof (big_sepL_lookup_acc _ _ _ _ Hagree with "Hreginv") as "[[Hlin _] Hrest]".
+        iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit' & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+        { iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
+          { do 2 iRight. iFrame. }
+          iMod ("Hcl" with "[-HΦ Hsrc Hcredit]") as "_".
+          { iFrame. iSplit; last done. iApply "Hrest". iFrame "∗ #". }
+          iMod (lc_fupd_elim_later with "Hcredit HΦ") as "HΦ".
+          iModIntro.
+          iApply ("HΦ" with "Hsrc"). }
+        { destruct (Nat.even ver'') eqn:Heven''.
+          - iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons')".
+            iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
+            (* Our request is still pending *)
             (* This is impossible, as the value stored in the cell is what was prophecized *)
-            Check Heven''.
             iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
-            assert (Nat.div2 ver'' ≤ Nat.div2 ver) by lia. clear Heq.
             assert (S ver ≤ ver'') as Htight%div2_mono by lia.
             rewrite <- Nat.Odd_div2 in Htight by done. lia.
-            { admit. }
-            done.
-
-
-            clear Heq.
-            Check Zmod_odd.
-            rewrite div2_mono in H.
-            assert (ver < ver'') by lia. }
-          { (* We have returned *)
-            (* This is impossible, as we still own the token. There cannot be another copy in the invariant *)
-            iCombine "Hγₜ Htok" gives %[]. }
-
-
+          - iMod "Hlock" as "(Hγₕ & Hγᵥ & Hdst)".
+            iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
+            (* Our request is still pending *)
+            (* This is impossible, as the value stored in the cell is what was prophecized *)
+            iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
+            assert (S ver ≤ ver'') as Htight%div2_mono by lia.
+            rewrite <- Nat.Odd_div2 in Htight by done. lia. }
+        { (* We have returned *)
+          (* This is impossible, as we still own the token. There cannot be another copy in the invariant *)
+          iCombine "Hγₜ Htok" gives %[]. }
         
 
         iIntros (ver') "[%Hless #Hlb']".
