@@ -74,7 +74,7 @@ Definition history := gmap nat $ agree $ list val.
 
 Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
 
-Definition requestReg := gmap nat $ agree (gname * Z).
+Definition requestReg := gmap nat $ agree (gname * nat).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO natO.
 
 Class seqlockG (Σ : gFunctors) := {
@@ -155,12 +155,12 @@ Section seqlock.
     own γᵣ (● map_seq O (to_agree <$> requests)).
 
   (* Fragmental ownership over a single request *)
-  Definition registered γᵣ i (γₗ : gname) (m : nat) :=
-   own γᵣ (◯ ({[i := to_agree (γₗ, m)]})).
+  Definition registered γᵣ i (γₗ : gname) (ver : nat) :=
+   own γᵣ (◯ ({[i := to_agree (γₗ, ver)]})).
 
-  Lemma registry_update γₗ m γ requests : 
+  Lemma registry_update γₗ ver γ requests : 
     registry γ requests ==∗ 
-      registry γ (requests ++ [(γₗ, m)]) ∗ registered γ (length requests) γₗ m.
+      registry γ (requests ++ [(γₗ, ver)]) ∗ registered γ (length requests) γₗ ver.
   Proof.
     iIntros "H●".
     rewrite /registry /registered.
@@ -169,7 +169,7 @@ Section seqlock.
       apply alloc_singleton_local_update 
         with 
           (i := length requests)
-          (x := to_agree (γₗ, m)).
+          (x := to_agree (γₗ, ver)).
       { rewrite lookup_map_seq_None length_fmap. by right. }
       constructor. }
     replace (length requests) with (O + length (to_agree <$> requests)) at 1 
@@ -178,26 +178,19 @@ Section seqlock.
   Qed.
 
   (* The authoritative view of the request registry must agree with its fragment *)
-  Lemma registry_agree (requests : list (gname * Z)) i request : 
-    ✓ (● map_seq O (to_agree <$> requests) ⋅ ◯ ({[i := to_agree request]})) →
-        requests !! i = Some request.
+  Lemma registry_agree γᵣ (requests : list (gname * nat)) (i : nat) γₗ ver :
+    registry γᵣ requests -∗
+      registered γᵣ i γₗ ver -∗
+        ⌜requests !! i = Some (γₗ, ver)⌝.
   Proof.
-    intros [Hincl _]%auth_both_valid_discrete.
-    apply dom_included in Hincl as Hdom.
-    rewrite dom_singleton_L singleton_subseteq_l in Hdom.
-    rewrite lookup_included in Hincl.
-    specialize Hincl with i.
-    rewrite option_included in Hincl.
-    destruct Hincl as [Hnone | (a & b & H & H' & Heq)].
-    { by rewrite lookup_insert in Hnone. }
-    rewrite lookup_insert in H. simplify_eq.
-    rewrite lookup_map_seq_0 list_lookup_fmap_Some in H'.
-    destruct H' as ([γₜ' m'] & Hlookup & ->).
-    destruct Heq as [Heq | Hle].
-    - apply (inj to_agree) in Heq.
-      by simplify_eq.
-    - rewrite to_agree_included in Hle.
-      by simplify_eq.
+    iIntros "H● H◯".
+    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
+    assert (✓ y) as Hy.
+    { by eapply lookup_valid_Some; eauto. }
+    pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
+    rewrite -Hvs'' to_agree_included in H. simplify_eq.
+    iPureIntro. apply leibniz_equiv, (inj (fmap to_agree)).
+    by rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs''.
   Qed.
 
   Definition AU_write (Φ : val → iProp Σ) γ (vs' : list val) (src : loc) dq : iProp Σ :=
@@ -267,8 +260,9 @@ Section seqlock.
 
   Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (version l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (history : list (list val)) (vs : list val) requests,
+      registry γᵣ requests ∗
       (* State of request registry *)
-      registry_inv γᵣ ver requests ∗
+      registry_inv γ (Nat.div2 ver) requests ∗
       (* Physical state of version *)
       version ↦ #ver ∗
       (* Big atomic is of fixed size *)
@@ -330,7 +324,7 @@ Section seqlock.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E.
-      iInv seqlockN as "(%ver' & %history & %vs & %registry & Hregistry & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
+      iInv seqlockN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
       destruct (Nat.even ver') eqn:Hparity.
       + iDestruct "Hlock" as ">(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
         wp_apply (wp_load_offset with "Hsrc").
@@ -563,7 +557,7 @@ Section seqlock.
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv seqlockN as "(%ver & %history & %vs'' & %registry & Hregistry & >Hversion & >%Hlen' & >%Hhistory & Hlock)" "Hcl".
+      iInv seqlockN as "(%ver & %history & %vs'' & %registry & Hreg & Hreginv & >Hversion & >%Hlen' & >%Hhistory & Hlock)" "Hcl".
       assert (i < length vs'') as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
       + iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst'' & %Hcons') /=".
@@ -578,7 +572,7 @@ Section seqlock.
         wp_store.
         iDestruct "Hdst" as "[Hdst Hdst'']".
         iPoseProof ("Hacc" with "Hdst''") as "Hdst''".
-        iMod ("Hcl" with "[$Hregistry $Hversion Hγₕ Hγᵥ Hdst'']") as "_".
+        iMod ("Hcl" with "[$Hreg $Hreginv $Hversion Hγₕ Hγᵥ Hdst'']") as "_".
         { iExists history, (<[i:=v']> vs''). rewrite Heven. iFrame "∗ %".
           iPureIntro. by rewrite length_insert. }
         iModIntro.
@@ -675,7 +669,7 @@ Section seqlock.
     { by apply auth_auth_valid, singleton_valid. }
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-    iMod (inv_alloc seqlockN _ (seqlock_inv γ γᵥ γₕ γᵣ version l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ]") as "H".
+    iMod (inv_alloc seqlockN _ (seqlock_inv γ γᵥ γₕ γᵣ version l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ Hγᵣ]") as "H".
     { rewrite /seqlock_inv /registry_inv. iExists O, [vs], vs, [].
       simpl. by iFrame "∗ %". }
     iModIntro.
@@ -694,7 +688,7 @@ Section seqlock.
     wp_rec.
     wp_pures.
     wp_bind (! _)%E.
-    iInv seqlockN as "(%ver' & %history & %vs & %registry & Hregistry & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv seqlockN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     wp_load.
     destruct (Nat.even ver') eqn:Heven.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
@@ -733,6 +727,45 @@ Section seqlock.
         iPureIntro. lia.
   Qed.
 
+  Lemma div2_mono x y : x ≤ y → Nat.div2 x ≤ Nat.div2 y.
+  Proof.
+    intros Hle. induction Hle as [| y Hle IH].
+    - done.
+    - destruct (Nat.Even_Odd_dec y).
+      + by rewrite -Nat.Even_div2.
+      + rewrite <- Nat.Odd_div2 by done. by constructor.
+  Qed.
+
+  Lemma even_odd_negb n b : Nat.even n = b ↔ Nat.odd n = negb b.
+  Proof.
+    split; destruct b; simpl.
+    - intros Heven%Nat.even_spec.
+      apply dec_stable.
+      rewrite not_false_iff_true.
+      intros Hodd%Nat.odd_spec.
+      by eapply Nat.Even_Odd_False.
+    - rewrite -not_true_iff_false Nat.even_spec Nat.odd_spec. 
+      intros Hnoteven.
+      destruct (Nat.Even_Odd_dec n).
+      + contradiction.
+      + done.
+    - rewrite -not_true_iff_false Nat.even_spec Nat.odd_spec. 
+      intros Hnoteven.
+      destruct (Nat.Even_Odd_dec n).
+      + done.
+      + contradiction.
+    - intros Hodd%Nat.odd_spec.
+      apply dec_stable.
+      rewrite not_false_iff_true.
+      intros Heven%Nat.even_spec.
+      by eapply Nat.Even_Odd_False.
+  Qed.
+
+  Lemma odd_even_negb n b : Nat.odd n = b ↔ Nat.even n = negb b.
+  Proof.
+    by rewrite even_odd_negb negb_involutive.
+  Qed.
+
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
     is_seqlock v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
@@ -740,23 +773,81 @@ Section seqlock.
           write (length vs') v #src @ ↑N
         <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
-    iIntros "(%version & %dst & %γᵥ & %γₕ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".
-    iLöb as "IH".
+    iIntros "(%version & %dst & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".
     wp_rec.
+    wp_pure credit:"Hcredit".
+    wp_pure credit:"Hcredit'".
+    wp_pure credit:"Hcredit''".
     wp_pures.
     wp_bind (! _)%E.
-    iInv seqlockN as "(%ver & %history & %vs & %registry & Hregistry & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv seqlockN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iMod (ghost_var_alloc true) as "(%γₗ & Hγₗ & Hγₗ')".
+    iMod token_alloc as "[%γₜ Hγₜ]".
+    iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit'' AU Hγₗ']") as "#Hwinv".
+    { iRight. iLeft. iFrame. }
     wp_load.
+    iMod (registry_update γₗ (S (Nat.div2 ver)) with "[$]") as "[●Hreg #◯Hreg]".
     destruct (Nat.even ver) eqn:Heven.
-    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons)".
-      iMod ("Hcl" with "[-AU Hsrc]") as "_".
+    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons)". admit.
+    - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hdst)".
+      iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
+      iMod ("Hcl" with "[-Hsrc Hcredit Hcredit' Hγₜ]") as "_".
       { rewrite /seqlock_inv.
-        iExists ver, history, vs. rewrite Heven. by iFrame. }
+        iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. 
+        iFrame. iNext. iSplit; last done. simpl. rewrite -> bool_decide_eq_true_2 by lia.
+        iFrame "∗ #". }
+      apply even_odd_negb, Nat.odd_spec in Heven.
       iModIntro.
       wp_pures.
       case_bool_decide as Hparity.
       + simplify_eq.
         wp_pures.
+        wp_apply wp_fupd.
+        wp_smart_apply (wp_loop_while with "[$] [$]").
+        iClear "Hlb".
+        iIntros (ver') "[%Hless #Hlb]".
+        iInv seqlockN as "(%ver'' & %history' & %vs'' & %registry' & >Hreg & Hreginv & >Hver & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
+        destruct (Nat.even ver'') eqn:Heven''.
+        * iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons')".
+          iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
+          iMod (lc_fupd_elim_later with "Hcredit' Hreginv") as "Hreginv".
+          iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
+          (* Consider which state our helping request is in*)
+          iPoseProof (big_sepL_lookup_acc _ _ _ _ Hagree with "Hreginv") as "[[Hlin _] Hrest]".
+          iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit' & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+          { iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
+            { do 2 iRight. iFrame. }
+            iMod ("Hcl" with "[-HΦ Hsrc Hcredit]") as "_".
+            { iFrame. rewrite Heven''. iExists history', vs''. iFrame.
+              iNext. iSplit; last done. iApply "Hrest". iFrame "∗ #". }
+            iMod (lc_fupd_elim_later with "Hcredit HΦ") as "HΦ".
+            iModIntro.
+            iApply ("HΦ" with "Hsrc"). }
+          { (* Our request is still pending *)
+            (* This is impossible, as the value stored in the cell is what was prophecized *)
+            Check Heven''.
+            iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
+            assert (Nat.div2 ver'' ≤ Nat.div2 ver) by lia. clear Heq.
+            assert (S ver ≤ ver'') as Htight%div2_mono by lia.
+            rewrite <- Nat.Odd_div2 in Htight by done. lia.
+            { admit. }
+            done.
+
+
+            clear Heq.
+            Check Zmod_odd.
+            rewrite div2_mono in H.
+            assert (ver < ver'') by lia. }
+          { (* We have returned *)
+            (* This is impossible, as we still own the token. There cannot be another copy in the invariant *)
+            iCombine "Hγₜ Htok" gives %[]. }
+
+
+        
+
+        iIntros (ver') "[%Hless #Hlb']".
+        
+        { }
         iApply ("IH" with "Hsrc AU").
       + wp_pures.
         wp_bind (CmpXchg _ _ _)%E.
