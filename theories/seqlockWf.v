@@ -778,16 +778,18 @@ Section seqlock.
     by rewrite even_odd_negb negb_involutive.
   Qed.
 
-  Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ version l n src dq vs' ver ver' i :
-  ver < ver' →
-    Nat.Odd ver →
+  Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ version l n src dq vs' ver i :
     inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version l n) -∗
       inv writeN (write_inv Φ γ γₗ γₜ src dq vs') -∗
         registered γᵣ i γₗ (S (Nat.div2 ver)) -∗
-            mono_nat_lb_own γᵥ ver' -∗ token γₜ -∗ £ 2 -∗ src ↦∗{dq} vs' ={⊤}=∗ Φ #().
+          mono_nat_lb_own γᵥ (S (S ver)) -∗ 
+            token γₜ -∗ 
+              £ 2 -∗ 
+                src ↦∗{dq} vs' 
+                  ={⊤}=∗ Φ #().
   Proof.
-    iIntros "%Hless %Heven #Hinv #Hwinv #◯Hreg #Hlb Hγₜ [Hcredit Hcredit'] Hsrc".
-    iInv seqlockN as "(%ver'' & %history & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iIntros "#Hinv #Hwinv #◯Hreg #Hlb Hγₜ [Hcredit Hcredit'] Hsrc".
+    iInv seqlockN as "(%ver' & %history & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     iMod (lc_fupd_elim_later with "Hcredit Hreginv") as "Hreginv".
     iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
     (* Consider which state our helping request is in*)
@@ -800,21 +802,20 @@ Section seqlock.
       iMod (lc_fupd_elim_later with "Hcredit' HΦ") as "HΦ".
       iModIntro.
       iApply ("HΦ" with "Hsrc"). }
-    { destruct (Nat.even ver'') eqn:Heven''.
+    { destruct (Nat.even ver') eqn:Heven''.
       - iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons')".
-        iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
+        iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless].
         (* Our request is still pending *)
         (* This is impossible, as the value stored in the cell is what was prophecized *)
         iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
-        assert (S ver ≤ ver'') as Htight%div2_mono by lia.
-        rewrite <- Nat.Odd_div2 in Htight by done. lia.
+        assert (S (S ver) ≤ ver') as Htight%div2_mono by lia. simpl in Htight. lia.
       - iMod "Hlock" as "(Hγₕ & Hγᵥ & Hdst)".
         iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
         (* Our request is still pending *)
         (* This is impossible, as the value stored in the cell is what was prophecized *)
         iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
-        assert (S ver ≤ ver'') as Htight%div2_mono by lia.
-        rewrite <- Nat.Odd_div2 in Htight by done. lia. }
+        assert (S (S ver) ≤ ver') as Htight%div2_mono by lia.
+        simpl in Htight. lia. }
     { (* We have returned *)
       (* This is impossible, as we still own the token. There cannot be another copy in the invariant *)
       iCombine "Hγₜ Htok" gives %[]. }
