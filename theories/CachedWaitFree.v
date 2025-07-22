@@ -21,10 +21,7 @@ Add Zify BinOp Op_Nat_div.
 Require Import stdpp.sorting.
 
 Definition new_big_atomic (n : nat) : val :=
-  λ: "src",
-    let: "dst" := AllocN #(S n) #0 in
-    array_copy_to ("dst" +ₗ #1) "src" #n;;
-    "dst".
+  λ: "src", (ref #0, array_clone "src" #n).
 
 Definition loop_while : val :=
   rec: "loop" "l" "v" :=
@@ -58,7 +55,7 @@ Definition write (n : nat) : val :=
 
 Definition read (n : nat) : val :=
   rec: "read" "l" :=
-    let: "version" := Fst "l" in
+    let: "version" := Fst (Fst "l") in
     let: "ver" := !"version" in
     if: "ver" `rem` #2 = #1 then
       (* If locked, retry *)
@@ -266,13 +263,13 @@ Section seqlock.
         by case_bool_decide; first lia.
   Qed.
 
-  Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (l : loc) (len : nat) : iProp Σ :=
+  Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (version l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (history : list (list val)) (vs : list val) requests,
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ (Nat.div2 ver) requests ∗
       (* Physical state of version *)
-      l ↦ #ver ∗
+      version ↦ #ver ∗
       (* Big atomic is of fixed size *)
       ⌜length vs = len⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions*)
@@ -281,19 +278,19 @@ Section seqlock.
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        ghost_var γ (1/2) vs ∗ history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 1) ↦∗ vs ∗ ⌜last history = Some vs⌝
+        ghost_var γ (1/2) vs ∗ history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ l ↦∗ vs ∗ ⌜last history = Some vs⌝
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 1) ↦∗{# 1/2} vs.
+        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ l ↦∗{# 1/2} vs.
 
-  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (dst src : loc) (n i : nat) vdst ver :
+  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (version dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
-            array_copy_to #(dst +ₗ i) #(src +ₗ 1 +ₗ i) #(n - i)
+            array_copy_to #(dst +ₗ i) #(src +ₗ i) #(n - i)
           {{{ vers vdst', RET #(); 
               (* the destination array contains some values [vdst'] *)
               (dst +ₗ i) ↦∗ vdst' ∗
@@ -349,7 +346,7 @@ Section seqlock.
         wp_store.
         wp_pures.
         rewrite -Z.sub_add_distr.
-        do 2 rewrite Loc.add_assoc.
+        repeat rewrite Loc.add_assoc.
         change 1%Z with (Z.of_nat 1).
         rewrite -Nat2Z.inj_add Nat.add_1_r.
         wp_apply ("IH" $! _ vdst ver' with "[] [] [$] [-] [//]").
@@ -357,7 +354,7 @@ Section seqlock.
         { iPureIntro. lia. }
         iIntros (vers vdst') "!> (Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
         iApply "HΦ".
-        replace (S i) with (i + 1) by lia.
+        rewrite -{1}Nat.add_1_r.
         rewrite Nat2Z.inj_add -Loc.add_assoc.
         iCombine "Hhd Hdst" as "Hdst".
         rewrite -array_cons.
@@ -389,7 +386,7 @@ Section seqlock.
         wp_store.
         wp_pures.
         rewrite -Z.sub_add_distr.
-        do 2 rewrite Loc.add_assoc.
+        repeat rewrite Loc.add_assoc.
         change 1%Z with (Z.of_nat 1).
         rewrite -Nat2Z.inj_add Nat.add_1_r.
         wp_apply ("IH" $! _ vdst ver' with "[] [] [$] [-] [//]").
@@ -397,7 +394,7 @@ Section seqlock.
         { iPureIntro. lia. }
         iIntros (vers vdst') "!> (Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
         iApply "HΦ".
-        replace (S i) with (i + 1) by lia.
+        rewrite -{1}Nat.add_1_r.
         rewrite Nat2Z.inj_add -Loc.add_assoc.
         iCombine "Hhd Hdst" as "Hdst".
         rewrite -array_cons.
@@ -431,14 +428,14 @@ Section seqlock.
     by do 2 rewrite -lookup_map_seq_0.
   Qed.
 
-  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ (dst src : loc) (n : nat) vdst ver :
+  Lemma wp_array_copy_to γ γᵥ γₕ γᵣ (version dst src : loc) (n : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     length vdst = n →
-      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ dst ↦∗ vdst }}}
-            array_copy_to #dst #(src +ₗ 1) #n
+            array_copy_to #dst #src #n
           {{{ vers vdst', RET #(); 
               (* the destination array contains some values [vdst'] *)
               dst ↦∗ vdst' ∗
@@ -459,22 +456,22 @@ Section seqlock.
                       ⌜vs !! i = Some v⌝)) }}}.
   Proof.
      iIntros "%Hvdst #Hinv #Hlb !> %Φ Hdst HΦ".
-     rewrite -(Loc.add_0 (src +ₗ 1)).
-     rewrite -(Loc.add_0 dst).
+     replace dst with (dst +ₗ 0) by apply Loc.add_0.
+     replace src with (src +ₗ 0) at 2 by apply Loc.add_0.
      replace (Z.of_nat n) with (n - 0)%Z by lia.
      change 0%Z with (Z.of_nat O).
-     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
+     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
      iIntros "!> %vers %vdst' /=".
      rewrite Nat.sub_0_r //.
   Qed.
 
-  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ (src : loc) (n : nat) ver :
+  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ (version src : loc) (n : nat) ver :
     n > 0 →
-      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ True }}}
-            array_clone #(src +ₗ 1) #n
+            array_clone #src #n
           {{{ vers vdst (dst : loc), RET #dst; 
               (* the destination array contains some values [vdst'] *)
               dst ↦∗ vdst ∗
@@ -500,7 +497,7 @@ Section seqlock.
     wp_alloc dst as "Hdst".
     { lia. }
     wp_pures.
-    wp_apply (wp_array_copy_to_wk with "[//] [//] [$]").
+    wp_apply (wp_array_copy_to with "[//] [//] [$]").
     { rewrite length_replicate. lia. }
     iIntros (vers vdst') "(Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
     wp_pures.
@@ -523,12 +520,12 @@ Section seqlock.
     - intros [k H]. exists (Z.to_nat k). lia.
   Qed.
 
-  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ dst src (vs vs' : list val) i n dq :
+  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ version dst src (vs vs' : list val) i n dq :
     i ≤ n → length vs = n - i → length vs = length vs' →
-        inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ dst n) -∗
-          {{{ (dst +ₗ 1 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
-            array_copy_to #(dst +ₗ 1 +ₗ i) #(src +ₗ i) #(n - i)%nat
-          {{{ RET #(); (dst +ₗ 1 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
+        inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version dst n) -∗
+          {{{ (dst +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
+            array_copy_to #(dst +ₗ i) #(src +ₗ i) #(n - i)%nat
+          {{{ RET #(); (dst +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
   Proof.
     iIntros (Hle Hlen Hmatch) "#Hinv %Φ !> [Hdst Hsrc] HΦ".
     iLöb as "IH" forall (i vs vs' Hlen Hle Hmatch).
@@ -578,8 +575,7 @@ Section seqlock.
         wp_pures.
         rewrite -> Nat2Z.inj_sub by done.
         rewrite -Z.sub_add_distr.
-        rewrite Loc.add_assoc /=.
-        rewrite (Loc.add_assoc src) /=.
+        repeat rewrite Loc.add_assoc /=.
         change 1%Z with (Z.of_nat 1).
         rewrite -Nat2Z.inj_add Nat.add_comm /=.
         rewrite <- Nat2Z.inj_sub by lia.
@@ -589,27 +585,27 @@ Section seqlock.
         * iPureIntro. lia.
         * iIntros "[Hdst' Hsrc']".
           iApply "HΦ". iFrame.
-          rewrite (Loc.add_assoc (dst +ₗ 1)) /=.
+          rewrite Loc.add_assoc /=.
           change 1%Z with (Z.of_nat 1).
           by rewrite -Nat2Z.inj_add Nat.add_comm /=.
   Qed.
 
-  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ dst src (vs vs' : list val) n dq :
+  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ version dst src (vs vs' : list val) n dq :
     length vs = n → length vs = length vs' →
-        inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ dst n) -∗
-          {{{ (dst +ₗ 1) ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
-            array_copy_to #(dst +ₗ 1) #src #n
-          {{{ RET #(); (dst +ₗ 1) ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
+        inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version dst n) -∗
+          {{{ dst ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
+            array_copy_to #dst #src #n
+          {{{ RET #(); dst ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
   Proof.
     iIntros (Hlen Hlen') "#Hinv %Φ !> [Hdst Hsrc] HΦ".
-    rewrite -(Loc.add_0 (dst +ₗ 1)).
-    rewrite -(Loc.add_0 src).
-    change 0%Z with (Z.of_nat 0).
-    rewrite -{2}(Nat.sub_0_r n).
-    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
+    replace dst with (dst +ₗ O) by now rewrite Loc.add_0.
+    replace src with (src +ₗ O) by now rewrite Loc.add_0.
+    replace n with (n - O) at 2 by lia.
+    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ _ vs vs' with "[#] [$] [$]").
     - lia.
     - lia.
     - done.
+    - by rewrite Loc.add_0.
   Qed.
 
   Lemma even_iff_not_odd n : Nat.Even n ↔ ¬ (Nat.Odd n).
@@ -645,8 +641,8 @@ Section seqlock.
   Qed.
 
   Definition is_seqlock (v : val) (γ : gname) (n : nat) : iProp Σ :=
-    ∃ (dst : loc) (γₕ γᵥ γᵣ : gname),
-      ⌜v = #dst⌝ ∗ inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ dst n).
+    ∃ (version dst : loc) (γₕ γᵥ γᵣ : gname),
+      ⌜v = (#version, #dst)%V⌝ ∗ inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version dst n).
 
   Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
     length vs = n → n > 0 →
@@ -657,15 +653,11 @@ Section seqlock.
     iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
     wp_rec.
     wp_pures.
-    wp_alloc l as "Hl".
-    { done. }
-    wp_pures.
-    rewrite Nat2Z.id /= array_cons.
-    iDestruct "Hl" as "[Hversion Hl]".
-    wp_apply (wp_array_copy_to with "[$Hl $Hsrc]").
-    { by rewrite length_replicate. }
+    wp_apply (wp_array_clone with "Hsrc").
     { auto. }
-    iIntros "[Hl Hsrc]".
+    { lia.  }
+    iIntros (l) "[Hl Hsrc]".
+    wp_alloc version as "Hversion".
     wp_pures.
     iMod (ghost_var_alloc vs) as "(%γ & Hγ & Hγ')".
     iMod (mono_nat_own_alloc 0) as "(%γᵥ & Hγᵥ & _)".
@@ -673,11 +665,11 @@ Section seqlock.
     { by apply auth_auth_valid, singleton_valid. }
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-    iMod (inv_alloc seqlockN _ (seqlock_inv γ γᵥ γₕ γᵣ l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ Hγᵣ]") as "H".
+    iMod (inv_alloc seqlockN _ (seqlock_inv γ γᵥ γₕ γᵣ version l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ Hγᵣ]") as "H".
     { rewrite /seqlock_inv /registry_inv. iExists O, [vs], vs, [].
       simpl. by iFrame "∗ %". }
     iModIntro.
-    iApply ("HΦ" $! #l γ).
+    iApply ("HΦ" $! (#version, #l)%V γ).
     by iFrame.
   Qed.
 
