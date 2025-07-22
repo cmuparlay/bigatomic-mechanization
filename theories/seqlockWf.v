@@ -33,40 +33,38 @@ Definition loop_while : val :=
 
 Definition write (n : nat) : val :=
   λ: "l" "src",
-    let: "version" := Fst "l" in
-    let: "ver" := !"version" in
+    let: "ver" := !"l" in
     if: "ver" `rem` #2 = #1 then
       (* If locked, spin until unlocked and return *)
-      loop_while "version" "ver"
+      loop_while "l" "ver"
     else
-      let: "res" := CmpXchg "version" "ver" (#1 + "ver") in
+      let: "res" := CmpXchg "l" "ver" (#1 + "ver") in
       if: Snd "res" then
         (* Lock was successful *)
         (* Perform update *)
-        array_copy_to (Snd "l") "src" #n;;
+        array_copy_to ("l" +ₗ #1) "src" #n;;
         (* Unlock *)
-        "version" <- #2 + "ver"
+        "l" <- #2 + "ver"
       else
         (* Failed to take lock *)
         let: "ver'" := Fst "res" in
         if: "ver'" = #1 + "ver" then
           (* If another writer is updating this version, wait until it is done *)
-          loop_while "version" "ver'"
+          loop_while "l" "ver'"
         else
           (* Otherwise, we have already been linearized by someone else *)
           #().
 
 Definition read (n : nat) : val :=
   rec: "read" "l" :=
-    let: "version" := Fst "l" in
-    let: "ver" := !"version" in
+    let: "ver" := !"l" in
     if: "ver" `rem` #2 = #1 then
       (* If locked, retry *)
       "read" "l"
     else
       (* Unlocked *)
-      let: "data" := array_clone (Snd "l") #n in
-      if: !"version" = "ver" then
+      let: "data" := array_clone ("l" +ₗ #1) #n in
+      if: !"l" = "ver" then
         (* Data was not changed, so our read was valid *)
         "data"
       else
@@ -681,10 +679,10 @@ Section seqlock.
     by iFrame.
   Qed.
 
-  Lemma wp_loop_while γ γᵥ γₕ γᵣ (version l : loc) (n ver : nat) :
-    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version l n) -∗
+  Lemma wp_loop_while γ γᵥ γₕ γᵣ (l : loc) (n ver : nat) :
+    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ l n) -∗
       {{{ mono_nat_lb_own γᵥ ver }}}
-        loop_while #version #ver
+        loop_while #l #ver
       {{{ ver', RET #(); ⌜ver < ver'⌝ ∗ mono_nat_lb_own γᵥ ver' }}}.
   Proof.
     iIntros "#Hinv %Φ !# #Hlb HΦ".
@@ -788,8 +786,8 @@ Section seqlock.
       by rewrite -not_true_iff_false Z.odd_spec -Odd_inj in H.
   Qed.
 
-  Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ version l n src dq vs' ver i :
-    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ version l n) -∗
+  Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ l n src dq vs' ver i :
+    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ l n) -∗
       inv writeN (write_inv Φ γ γₗ γₜ src dq vs') -∗
         registered γᵣ i γₗ (S (Nat.div2 ver)) -∗
           mono_nat_lb_own γᵥ (S (S ver)) -∗ 
@@ -838,24 +836,22 @@ Section seqlock.
           write (length vs') v #src @ ↑N
         <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
-    iIntros "(%version & %dst & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".
+    iIntros "(%dst & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".
     wp_rec.
     wp_pure credit:"Hcredit".
     wp_pure credit:"Hcredit'".
-    wp_pure credit:"Hcredit''".
-    wp_pures.
     wp_bind (! _)%E.
     iInv seqlockN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     iMod (ghost_var_alloc true) as "(%γₗ & Hγₗ & Hγₗ')".
     iMod token_alloc as "[%γₜ Hγₜ]".
-    iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit'' AU Hγₗ']") as "#Hwinv".
+    iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit' AU Hγₗ']") as "#Hwinv".
     { iRight. iLeft. iFrame. }
     wp_load.
     iMod (registry_update γₗ (S (Nat.div2 ver)) with "[$]") as "[●Hreg #◯Hreg]".
     destruct (Nat.even ver) eqn:Heven.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons)".
       iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit Hcredit']") as "_".
+      iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit]") as "_".
       { rewrite /seqlock_inv.
         iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
         rewrite bool_decide_eq_true_2.
@@ -886,7 +882,7 @@ Section seqlock.
           iFrame "∗ %". }
         iModIntro.
         wp_pures.
-        wp_apply (wp_array_copy_to_half _ _ _ _ _ _ _ vs'' vs' with "[//] [$] [-]"); try done.
+        wp_apply (wp_array_copy_to_half _ _ _ _ _ _ vs'' vs' with "[//] [$] [-]"); try done.
         iIntros "!> [Hdst Hsrc]".
         wp_pures.
         iInv seqlockN as "(%ver' & %history'' & %vs''' & %registry'' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory'' & Hlock)" "Hcl".
@@ -993,13 +989,14 @@ Section seqlock.
             by iCombine "Hcredit Hcredit'" as "?". }
     - iDestruct "Hlock" as "(Hγ & Hγᵥ & Hdst)".
       iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit Hcredit']") as "_".
+      iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit]") as "_".
       { rewrite /seqlock_inv.
         iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
         rewrite bool_decide_eq_true_2.
         - simpl. by iFrame.
         - lia. }
       iModIntro.
+      wp_pure credit:"Hcredit'".
       wp_pures.
       rewrite bool_decide_eq_true_2; first last.
       { repeat f_equal. rewrite Zrem_odd odd_inj. rewrite Z.sgn_pos.
@@ -1026,7 +1023,7 @@ Section seqlock.
           read n v @ ↑N
         <<{ ∃∃ copy : loc, value γ vs | RET #copy; copy ↦∗ vs }>>.
   Proof.
-    iIntros "%Hpos (%version & %src & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) %Φ AU".
+    iIntros "%Hpos (%src & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) %Φ AU".
     iLöb as "IH".
     wp_rec. wp_pures.
     wp_bind (! _)%E.
