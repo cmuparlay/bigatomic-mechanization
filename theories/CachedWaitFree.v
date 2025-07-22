@@ -67,7 +67,7 @@ Definition array_equal : val :=
   rec: "array_equal" "l" "l'" "n" :=
     if: "n" ≤ #0 then #true
     else
-      !"l" = !"l'" && "array_equal" ("l" +ₗ #1) ("l'" +ₗ #1) ("n" - #1).
+      (!"l" = !"l'") && ("array_equal" ("l" +ₗ #1) ("l'" +ₗ #1) ("n" - #1)).
 (* 
 Definition cas (n : nat) : val :=
   λ: "l" "expected" "desired",
@@ -103,22 +103,47 @@ Class seqlockG (Σ : gFunctors) := {
 Section seqlock.
   Context `{!seqlockG Σ, !heapGS Σ}.
 
-  Lemma wp_array_equal (l l' : loc) (dq dq' : dfrac) (vs vs' : list val) (n : nat) :
-    length vs = n → length vs' = n →
+  Lemma wp_array_equal (l l' : loc) (dq dq' : dfrac) (vs vs' : list val) :
+    length vs = length vs' → Forall2 vals_compare_safe vs vs' →
     {{{ l ↦∗{dq} vs ∗ l' ↦∗{dq'} vs' }}}
-      array_equal #l #l' #n
+      array_equal #l #l' #(length vs)
     {{{ RET #(bool_decide (vs = vs')); l ↦∗{dq} vs ∗ l' ↦∗{dq'} vs' }}}.
   Proof.
-    iIntros (Hlen Hlen' Φ) "[Hl Hl'] HΦ".
-    iInduction n as [|k] "IH" forall (vs vs' Hlen Hlen').
+    iIntros (Hlen Hsafe Φ) "[Hl Hl'] HΦ".
+    iInduction vs as [|v vs] "IH" forall (l l' vs' Hsafe Hlen) "HΦ".
     - wp_rec. wp_pures.
-      apply length_zero_iff_nil in Hlen as ->.
-      apply length_zero_iff_nil in Hlen' as ->.
+      apply symmetry, length_zero_iff_nil in Hlen as ->.
       iModIntro.
       rewrite bool_decide_eq_true_2; last done.
       iApply "HΦ". iFrame.
     - wp_rec. wp_pures.
-      
+      destruct vs' as [| v' vs']; first discriminate.
+      inv Hlen. inv Hsafe.
+      repeat rewrite array_cons.
+      iDestruct "Hl" as "[Hl Hlrest]".
+      iDestruct "Hl'" as "[Hl' Hlrest']".
+      do 2 wp_load.
+      wp_pures.
+      destruct (decide (v = v')) as [-> | Hne].
+      + rewrite (bool_decide_eq_true_2 (v' = v')); last done.
+        wp_pures.
+        rewrite Z.sub_1_r.
+        rewrite -Nat2Z.inj_pred /=; last lia.
+        iApply ("IH" $! _ _ vs' with "[//] [//] [$] [$]").
+        iIntros "!> [Hlrest Hlrest']".
+        iSpecialize ("HΦ" with "[$]").
+        destruct (decide (vs = vs')) as [-> | Hne].
+        * rewrite bool_decide_eq_true_2; last done.
+          by rewrite bool_decide_eq_true_2.
+        * rewrite bool_decide_eq_false_2.
+          -- by rewrite bool_decide_eq_false_2.
+          -- by intros [=].
+      + rewrite (bool_decide_eq_false_2 (v = v')); last done.
+        wp_pures.
+        iSpecialize ("HΦ" with "[$]").
+        destruct (decide (vs = vs')) as [-> | Hne'];
+        rewrite bool_decide_eq_false_2; auto; by intros [=].
+  Qed.
 
   Context (N : namespace).
 
