@@ -95,8 +95,8 @@ Definition history := gmap nat $ agree $ list val.
 
 Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
 
-Definition requestReg := gmap nat $ agree (gname * nat).
-Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO natO.
+Definition requestReg := gmap nat $ agree (gname * loc).
+Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO locO.
 
 Class seqlockG (Σ : gFunctors) := {
   seqlock_heapGS :: heapGS Σ;
@@ -214,16 +214,16 @@ Section seqlock.
     rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
   Qed.
 
-  Definition registry γᵣ (requests : list (gname * nat)) :=
+  Definition registry γᵣ (requests : list (gname * loc)) :=
     own γᵣ (● map_seq O (to_agree <$> requests)).
 
   (* Fragmental ownership over a single request *)
-  Definition registered γᵣ i (γₗ : gname) (ver : nat) :=
-   own γᵣ (◯ ({[i := to_agree (γₗ, ver)]})).
+  Definition registered γᵣ i (γₗ : gname) (l : loc) :=
+   own γᵣ (◯ ({[i := to_agree (γₗ, l)]})).
 
-  Lemma registry_update γₗ ver γ requests : 
+  Lemma registry_update γₗ l γ requests : 
     registry γ requests ==∗ 
-      registry γ (requests ++ [(γₗ, ver)]) ∗ registered γ (length requests) γₗ ver.
+      registry γ (requests ++ [(γₗ, l)]) ∗ registered γ (length requests) γₗ l.
   Proof.
     iIntros "H●".
     rewrite /registry /registered.
@@ -232,7 +232,7 @@ Section seqlock.
       apply alloc_singleton_local_update 
         with 
           (i := length requests)
-          (x := to_agree (γₗ, ver)).
+          (x := to_agree (γₗ, l)).
       { rewrite lookup_map_seq_None length_fmap. by right. }
       constructor. }
     replace (length requests) with (O + length (to_agree <$> requests)) at 1 
@@ -241,7 +241,7 @@ Section seqlock.
   Qed.
 
   (* The authoritative view of the request registry must agree with its fragment *)
-  Lemma registry_agree γᵣ (requests : list (gname * nat)) (i : nat) γₗ ver :
+  Lemma registry_agree γᵣ (requests : list (gname * loc)) (i : nat) γₗ ver :
     registry γᵣ requests -∗
       registered γᵣ i γₗ ver -∗
         ⌜requests !! i = Some (γₗ, ver)⌝.
@@ -261,18 +261,18 @@ Section seqlock.
             @ ⊤ ∖ ↑N, ∅
           <{ value γ vs', COMM src ↦∗{dq} vs' -∗ Φ #() }>.
 
-  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
-      ((src ↦∗{dq} vs' -∗ Φ #()) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src l' : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
+      ((src ↦∗{dq} vs' -∗ Φ #()) ∗ (∃ vs'', l' ↦∗□ vs'') ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
     ∨ (£ 1 ∗ AU_write Φ γ vs' src dq ∗ ghost_var γₗ (1/2) true)
-    ∨ (token γₜ ∗ ghost_var γₗ (1/2) false). (* The failing write has linearized and returned *)
+    ∨ (token γₜ ∗ ghost_var γₗ (1/2) false).  (* The failing write has linearized and returned *)
 
-  Definition request_inv γ γₗ ver ver' : iProp Σ :=
-    ghost_var γₗ (1/2) (bool_decide (ver < ver')) ∗
+  Definition request_inv γ γₗ (l l' : loc) : iProp Σ :=
+    ghost_var γₗ (1/2) (bool_decide (l = l')) ∗
     ∃ (Φ : val → iProp Σ) (γₜ : gname) (src : loc) (dq : dfrac) (vs : list val),
-      inv writeN (write_inv Φ γ γₗ γₜ src dq vs).
+      inv writeN (write_inv Φ γ γₗ γₜ src l' dq vs).
 
-  Definition registry_inv γ ver (requests : list (gname * nat)) : iProp Σ :=
-    [∗ list] '(γₗ, ver') ∈ requests, request_inv γ γₗ ver ver'.
+  Definition registry_inv γ l (requests : list (gname * nat)) : iProp Σ :=
+    [∗ list] '(γₗ, l') ∈ requests, request_inv γ γₗ l l'.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
