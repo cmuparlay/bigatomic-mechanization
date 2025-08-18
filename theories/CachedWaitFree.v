@@ -57,31 +57,38 @@ Definition read' (n : nat) : val :=
     let: "data" := array_clone ("l" +ₗ #2) #n in
     let: "backup" := !("l" +ₗ #1) in
     if: (Fst "backup" && !"l" = "ver") then
-      ("data", "ver")
+      ("data", "backup", "ver")
     else
-      (array_clone (Snd "backup") #n, "ver").
+      (array_clone (Snd "backup") #n, "backup", "ver").
 
-Definition read (n : nat) : val := λ: "l", Fst (read' n "l").
+Definition read (n : nat) : val := λ: "l", Fst (Fst (read' n "l")).
 
 Definition array_equal : val :=
   rec: "array_equal" "l" "l'" "n" :=
     if: "n" ≤ #0 then #true
     else
       (!"l" = !"l'") && ("array_equal" ("l" +ₗ #1) ("l'" +ₗ #1) ("n" - #1)).
-(* 
+
 Definition cas (n : nat) : val :=
   λ: "l" "expected" "desired",
     let: "old" := read' n "l" in
-
-
-
-    if: !"l" = "ver" then
-      (* Data was not changed, so our read was valid *)
-      "data"
-    else
-      (* Data was locked and updated since we loaded *)
-      (* Retry *)
-      "read" "l". *)
+    if: array_equal (Fst (Fst "old")) "expected" then 
+      if: array_equal "expected" "desired" then #true
+      else
+        let: "backup'" := (#false, array_clone "desired" #n) in
+        let: "backup" := (Snd (Fst "old")) in
+        if: CAS ("l" +ₗ #1) "backup" "backup'" || CAS ("l" +ₗ #1) (#true, Snd "backup") "backup'" then
+          let: "ver" := Snd "old" in
+          if: "ver" `rem` #2 = #0 && CAS "l" "ver" (#1 + "ver") then
+            (* Lock was successful *)
+            (* Perform update *)
+            array_copy_to ("l" +ₗ #2) "desired" #n;;
+            (* Unlock *)
+            "l" <- #2 + "ver"
+            #true
+          else #true
+        else #false
+    else #false.
 
 Definition history := gmap nat $ agree $ list val.
 
