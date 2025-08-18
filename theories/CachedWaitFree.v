@@ -271,11 +271,11 @@ Section seqlock.
     ∃ (Φ : val → iProp Σ) (γₜ : gname) (src : loc) (dq : dfrac) (vs : list val),
       inv writeN (write_inv Φ γ γₗ γₜ src l' dq vs).
 
-  Definition registry_inv γ l (requests : list (gname * nat)) : iProp Σ :=
+  Definition registry_inv γ l (requests : list (gname * loc)) : iProp Σ :=
     [∗ list] '(γₗ, l') ∈ requests, request_inv γ γₗ l l'.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
-  Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
+  (* Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
     ghost_var γ (1/2) vs -∗
       registry_inv γ ver requests ={⊤ ∖ ↑seqlockN}=∗ 
         registry_inv γ (S ver) requests ∗ ∃ vs' : list val, ghost_var γ (1/2) vs'.
@@ -323,13 +323,19 @@ Section seqlock.
         assert (ver ≥ ver') as Hge by lia.
         iFrame "∗ #".
         by case_bool_decide; first lia.
-  Qed.
+  Qed. *)
 
-  Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (l : loc) (len : nat) : iProp Σ :=
+  Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (valid : bool) (l backup : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (history : list (list val)) (vs : list val) requests,
+      (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
+      (l +ₗ 1) ↦ (#valid, #backup)%V ∗
+      (* backup always consistent with logical state *)
+      backup ↦∗ vs ∗
+      (* If the backup is validated, then the cache is unlocked *)
+      if valid then Nat.even ver else True ∗
       registry γᵣ requests ∗
       (* State of request registry *)
-      registry_inv γ (Nat.div2 ver) requests ∗
+      registry_inv γ (l +ₗ 1) requests ∗
       (* Physical state of version *)
       l ↦ #ver ∗
       (* Big atomic is of fixed size *)
@@ -340,10 +346,10 @@ Section seqlock.
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        ghost_var γ (1/2) vs ∗ history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 1) ↦∗ vs ∗ ⌜last history = Some vs⌝
+        ghost_var γ (1/2) vs ∗ history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ vs ∗ ⌜last history = Some vs⌝
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 1) ↦∗{# 1/2} vs.
+        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} vs.
 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
