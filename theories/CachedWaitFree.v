@@ -84,7 +84,8 @@ Definition cas (n : nat) : val :=
             (* Perform update *)
             array_copy_to ("l" +ₗ #2) "desired" #n;;
             (* Unlock *)
-            "l" <- #2 + "ver"
+            "l" <- #2 + "ver";;
+            CmpXchg ("l" +ₗ #1) "backup'" (#true, Snd "backup'");;
             #true
           else #true
         else #false
