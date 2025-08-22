@@ -1,5 +1,5 @@
 From iris.program_logic Require Import atomic.
-From iris.algebra Require Import auth gmap list lib.mono_nat.
+From iris.algebra Require Import auth gmap gset list lib.mono_nat.
 From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
 From iris.heap_lang Require Import lang proofmode notation lib.array.
 Import derived_laws.bi.
@@ -98,18 +98,23 @@ Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
 Definition requestReg := gmap nat $ agree (gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO locO.
 
-Class seqlockG (Σ : gFunctors) := {
-  seqlock_heapGS :: heapGS Σ;
-  seqlock_historyUR :: inG Σ historyUR;
-  seqlock_requestRegUR :: inG Σ requestRegUR;
-  seqlock_mono_natG :: mono_natG Σ;
-  seqlock_ghost_varG_vals :: ghost_varG Σ (list val);
-  seqlock_ghost_varG_bool :: ghost_varG Σ bool;
-  seqlock_tokenG :: tokenG Σ;
+Definition usedUR := authUR $ gsetUR $ locO.
+
+Class cached_wfG (Σ : gFunctors) := {
+  cached_wf_heapGS :: heapGS Σ;
+  cached_wf_historyUR :: inG Σ historyUR;
+  cached_wf_usedUR :: inG Σ usedUR;
+  cached_wf_requestRegUR :: inG Σ requestRegUR;
+  cached_wf_mono_natG :: mono_natG Σ;
+  cached_wf_ghost_varG_vals :: ghost_varG Σ (list val);
+  cached_wf_ghost_varG_bool :: ghost_varG Σ bool;
+  cached_wf_tokenG :: tokenG Σ;
 }.
 
-Section seqlock.
-  Context `{!seqlockG Σ, !heapGS Σ}.
+Section cached_wf.
+  Context `{!cached_wfG Σ, !heapGS Σ}.
+
+  Check gsetUR.
 
   Lemma wp_array_equal (l l' : loc) (dq dq' : dfrac) (vs vs' : list val) :
     length vs = length vs' → Forall2 vals_compare_safe vs vs' →
@@ -155,7 +160,7 @@ Section seqlock.
 
   Context (N : namespace).
 
-  Definition seqlockN := N .@ "seqlock".
+  Definition cached_wfN := N .@ "cached_wf".
 
   Definition writeN := N .@ "write".
 
@@ -261,9 +266,9 @@ Section seqlock.
             @ ⊤ ∖ ↑N, ∅
           <{ value γ vs', COMM src ↦∗{dq} vs' -∗ Φ #() }>.
 
-  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src l' : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
-      ((src ↦∗{dq} vs' -∗ Φ #()) ∗ (∃ vs'', l' ↦∗□ vs'') ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ AU_write Φ γ vs' src dq ∗ ghost_var γₗ (1/2) true)
+  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ γᵤ : gname) (src l' : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
+      ((src ↦∗{dq} vs' -∗ Φ #()) ∗ own γᵤ (◯ {[ l' ]}) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+    ∨ (£ 1 ∗ AU_write Φ γ vs' src dq ∗ l' ↦∗ vs' ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ghost_var γₗ (1/2) false).  (* The failing write has linearized and returned *)
 
   Definition request_inv γ γₗ (l l' : loc) : iProp Σ :=
@@ -277,7 +282,7 @@ Section seqlock.
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   (* Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
     ghost_var γ (1/2) vs -∗
-      registry_inv γ ver requests ={⊤ ∖ ↑seqlockN}=∗ 
+      registry_inv γ ver requests ={⊤ ∖ ↑cached_wfN}=∗ 
         registry_inv γ (S ver) requests ∗ ∃ vs' : list val, ghost_var γ (1/2) vs'.
   Proof.
     iIntros "Hγ Hreqs".
@@ -325,14 +330,14 @@ Section seqlock.
         by case_bool_decide; first lia.
   Qed. *)
 
-  Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (valid : bool) (l backup : loc) (len : nat) : iProp Σ :=
+  Definition cached_wf_inv (γ γᵥ γₕ γᵣ : gname) (valid : bool) (l backup : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (history : list (list val)) (vs : list val) requests,
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
       (l +ₗ 1) ↦ (#valid, #backup)%V ∗
       (* backup always consistent with logical state *)
       backup ↦∗ vs ∗
       (* If the backup is validated, then the cache is unlocked *)
-      if valid then Nat.even ver else True ∗
+      ⌜if valid then Nat.Even ver else True⌝ ∗
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ (l +ₗ 1) requests ∗
@@ -354,7 +359,7 @@ Section seqlock.
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
@@ -397,7 +402,7 @@ Section seqlock.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E.
-      iInv seqlockN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
+      iInv cached_wfN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
       destruct (Nat.even ver') eqn:Hparity.
       + iDestruct "Hlock" as ">(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
         wp_apply (wp_load_offset with "Hsrc").
@@ -499,7 +504,7 @@ Section seqlock.
   Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ (dst src : loc) (n : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     length vdst = n →
-      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ dst ↦∗ vdst }}}
@@ -535,7 +540,7 @@ Section seqlock.
 
   Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ (src : loc) (n : nat) ver :
     n > 0 →
-      inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ True }}}
@@ -590,7 +595,7 @@ Section seqlock.
 
   Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ dst src (vs vs' : list val) i n dq :
     i ≤ n → length vs = n - i → length vs = length vs' →
-        inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ dst n) -∗
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ dst n) -∗
           {{{ (dst +ₗ 1 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
             array_copy_to #(dst +ₗ 1 +ₗ i) #(src +ₗ i) #(n - i)%nat
           {{{ RET #(); (dst +ₗ 1 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
@@ -621,7 +626,7 @@ Section seqlock.
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv seqlockN as "(%ver & %history & %vs'' & %registry & Hreg & Hreginv & >Hversion & >%Hlen' & >%Hhistory & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver & %history & %vs'' & %registry & Hreg & Hreginv & >Hversion & >%Hlen' & >%Hhistory & Hlock)" "Hcl".
       assert (i < length vs'') as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
       + iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst'' & %Hcons') /=".
@@ -661,7 +666,7 @@ Section seqlock.
 
   Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ dst src (vs vs' : list val) n dq :
     length vs = n → length vs = length vs' →
-        inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ dst n) -∗
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ dst n) -∗
           {{{ (dst +ₗ 1) ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
             array_copy_to #(dst +ₗ 1) #src #n
           {{{ RET #(); (dst +ₗ 1) ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
@@ -709,15 +714,15 @@ Section seqlock.
       by iFrame.
   Qed.
 
-  Definition is_seqlock (v : val) (γ : gname) (n : nat) : iProp Σ :=
+  Definition is_cached_wf (v : val) (γ : gname) (n : nat) : iProp Σ :=
     ∃ (dst : loc) (γₕ γᵥ γᵣ : gname),
-      ⌜v = #dst⌝ ∗ inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ dst n).
+      ⌜v = #dst⌝ ∗ inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ dst n).
 
   Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
     length vs = n → n > 0 →
       {{{ src ↦∗{dq} vs }}}
         new_big_atomic n #src
-      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_seqlock v γ n ∗ value γ vs  }}}.
+      {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_cached_wf v γ n ∗ value γ vs  }}}.
   Proof.
     iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
     wp_rec.
@@ -738,8 +743,8 @@ Section seqlock.
     { by apply auth_auth_valid, singleton_valid. }
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-    iMod (inv_alloc seqlockN _ (seqlock_inv γ γᵥ γₕ γᵣ l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ Hγᵣ]") as "H".
-    { rewrite /seqlock_inv /registry_inv. iExists O, [vs], vs, [].
+    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ Hγᵣ]") as "H".
+    { rewrite /cached_wf_inv /registry_inv. iExists O, [vs], vs, [].
       simpl. by iFrame "∗ %". }
     iModIntro.
     iApply ("HΦ" $! #l γ).
@@ -747,7 +752,7 @@ Section seqlock.
   Qed.
 
   Lemma wp_loop_while γ γᵥ γₕ γᵣ (l : loc) (n ver : nat) :
-    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ l n) -∗
+    inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ l n) -∗
       {{{ mono_nat_lb_own γᵥ ver }}}
         loop_while #l #ver
       {{{ ver', RET #(); ⌜ver < ver'⌝ ∗ mono_nat_lb_own γᵥ ver' }}}.
@@ -757,7 +762,7 @@ Section seqlock.
     wp_rec.
     wp_pures.
     wp_bind (! _)%E.
-    iInv seqlockN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     wp_load.
     destruct (Nat.even ver') eqn:Heven.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
@@ -854,7 +859,7 @@ Section seqlock.
   Qed.
 
   Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ l n src dq vs' ver i :
-    inv seqlockN (seqlock_inv γ γᵥ γₕ γᵣ l n) -∗
+    inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ l n) -∗
       inv writeN (write_inv Φ γ γₗ γₜ src dq vs') -∗
         registered γᵣ i γₗ (S (Nat.div2 ver)) -∗
           mono_nat_lb_own γᵥ (S (S ver)) -∗ 
@@ -864,7 +869,7 @@ Section seqlock.
                   ={⊤}=∗ Φ #().
   Proof.
     iIntros "#Hinv #Hwinv #◯Hreg #Hlb Hγₜ [Hcredit Hcredit'] Hsrc".
-    iInv seqlockN as "(%ver' & %history & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver' & %history & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     iMod (lc_fupd_elim_later with "Hcredit Hreginv") as "Hreginv".
     iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
     (* Consider which state our helping request is in*)
@@ -897,7 +902,7 @@ Section seqlock.
   Qed.
 
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
-    is_seqlock v γ (length vs') -∗
+    is_cached_wf v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
         <<{ ∀∀ vs, value γ vs  }>> 
           write (length vs') v #src @ ↑N
@@ -908,7 +913,7 @@ Section seqlock.
     wp_pure credit:"Hcredit".
     wp_pure credit:"Hcredit'".
     wp_bind (! _)%E.
-    iInv seqlockN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     iMod (ghost_var_alloc true) as "(%γₗ & Hγₗ & Hγₗ')".
     iMod token_alloc as "[%γₜ Hγₜ]".
     iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit' AU Hγₗ']") as "#Hwinv".
@@ -919,7 +924,7 @@ Section seqlock.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons)".
       iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
       iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit]") as "_".
-      { rewrite /seqlock_inv.
+      { rewrite /cached_wf_inv.
         iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
         rewrite bool_decide_eq_true_2.
         - simpl. by iFrame.
@@ -930,7 +935,7 @@ Section seqlock.
       { intros [=Heq]. by rewrite Zrem_even even_inj Heven in Heq. }
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
-      iInv seqlockN as "(%ver' & %history' & %vs'' & %registry' & Hreg & Hreginv & >Hver & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %history' & %vs'' & %registry' & Hreg & Hreginv & >Hver & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
       destruct (decide (ver = ver')) as [<- | Hne].
       + rewrite Heven.
         wp_cmpxchg_suc.
@@ -939,7 +944,7 @@ Section seqlock.
         iMod (mono_nat_own_update (S ver) with "Hγᵥ") as "[[Hγᵥ Hγᵥ'] #Hlb']".
         { lia. }
         iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
-        { rewrite /seqlock_inv. iExists (S ver), history', vs'', registry'.
+        { rewrite /cached_wf_inv. iExists (S ver), history', vs'', registry'.
           rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
           rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
           rewrite Heven /=.
@@ -952,7 +957,7 @@ Section seqlock.
         wp_apply (wp_array_copy_to_half _ _ _ _ _ _ vs'' vs' with "[//] [$] [-]"); try done.
         iIntros "!> [Hdst Hsrc]".
         wp_pures.
-        iInv seqlockN as "(%ver' & %history'' & %vs''' & %registry'' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory'' & Hlock)" "Hcl".
+        iInv cached_wfN as "(%ver' & %history'' & %vs''' & %registry'' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory'' & Hlock)" "Hcl".
         destruct (Nat.even ver') eqn:Heven''.
         { iMod "Hlock" as "(_ & _ & Hγᵥ' & _ & _)". by iDestruct (mono_nat_auth_own_agree with "Hγᵥ Hγᵥ'") as %[Hq _]. }
         iMod "Hlock" as "(Hγₕ' & Hγᵥ' & Hdst')".
@@ -1057,7 +1062,7 @@ Section seqlock.
     - iDestruct "Hlock" as "(Hγ & Hγᵥ & Hdst)".
       iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
       iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit]") as "_".
-      { rewrite /seqlock_inv.
+      { rewrite /cached_wf_inv.
         iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
         rewrite bool_decide_eq_true_2.
         - simpl. by iFrame.
@@ -1085,7 +1090,7 @@ Section seqlock.
 
   Lemma read_spec (γ : gname) (v : val) (n : nat) :
     n > 0 →
-      is_seqlock v γ n -∗
+      is_cached_wf v γ n -∗
         <<{ ∀∀ vs, value γ vs  }>> 
           read n v @ ↑N
         <<{ ∃∃ copy : loc, value γ vs | RET #copy; copy ↦∗ vs }>>.
@@ -1094,7 +1099,7 @@ Section seqlock.
     iLöb as "IH".
     wp_rec. wp_pures.
     wp_bind (! _)%E.
-    iInv seqlockN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
     wp_load.
     destruct (Nat.even ver) eqn:Hparity.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
@@ -1102,7 +1107,7 @@ Section seqlock.
       iMod (history_frag_alloc with "Hγₕ") as "[H● #H◯]".
       { by rewrite last_lookup in Hcons. }
       iMod ("Hcl" with "[-AU]") as "_".
-      { rewrite /seqlock_inv.
+      { rewrite /cached_wf_inv.
         iExists ver, history, vs. rewrite Hparity. by iFrame. }
       iModIntro.
       wp_pures.
@@ -1114,7 +1119,7 @@ Section seqlock.
       iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
       wp_pures.
       wp_bind (! _)%E.
-      iInv seqlockN as "(%ver' & %history' & %vs' & %registry' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory' & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %history' & %vs' & %registry' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory' & Hlock)" "Hcl".
       destruct (decide (ver = ver')) as [<- | Hne].
       + rewrite Hparity.
         iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons')".
@@ -1150,7 +1155,7 @@ Section seqlock.
         iCombine "Hγ Hγ'" gives %[_ <-].
         iMod ("Hconsume" $! dst with "[$Hγ']") as "HΦ".
         iMod ("Hcl" with "[-HΦ Hdst]") as "_".
-        { rewrite /seqlock_inv.
+        { rewrite /cached_wf_inv.
           iExists ver, history', vs. rewrite Hparity. iFrame "∗ %".
           iPureIntro. rewrite last_lookup. by rewrite Hhistory'. }
         iModIntro. wp_pures. rewrite bool_decide_eq_true_2; last done.
@@ -1159,7 +1164,7 @@ Section seqlock.
         * iMod "Hlock" as "(Hversion & Hsrc & History)".
           wp_load.
           iMod ("Hcl" with "[-AU]") as "_".
-          { rewrite /seqlock_inv.
+          { rewrite /cached_wf_inv.
             iExists ver', history', vs'. rewrite Hparity'''. by iFrame "∗ %". }
           iModIntro.
           wp_pures.
@@ -1169,7 +1174,7 @@ Section seqlock.
         * iDestruct "Hlock" as "(Hversion & Hsrc)".
           wp_load.
           iMod ("Hcl" with "[-AU]") as "_".
-          { rewrite /seqlock_inv.
+          { rewrite /cached_wf_inv.
             iExists ver', history', vs'. rewrite Hparity'''. by iFrame "∗ %". }
           iModIntro.
           wp_pures.
@@ -1178,7 +1183,7 @@ Section seqlock.
           iApply ("IH" with "AU").
     - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hsrc)".
       iMod ("Hcl" with "[-AU]") as "_".
-      { rewrite /seqlock_inv.
+      { rewrite /cached_wf_inv.
         iExists ver, history, vs. rewrite Hparity. by iFrame "∗ %". }
       iModIntro.
       wp_pures.
@@ -1188,4 +1193,4 @@ Section seqlock.
       iApply ("IH" with "AU").
   Qed.
 
-End seqlock.
+End cached_wf.
