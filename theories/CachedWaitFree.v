@@ -261,14 +261,15 @@ Section cached_wf.
     rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
   Qed.
 
-  Definition AU_write (Φ : val → iProp Σ) γ (vs' : list val) (src : loc) dq : iProp Σ :=
-       AU <{ ∃∃ vs : list val, value γ vs }>
+  Definition AU_cas (Φ : val → iProp Σ) γ (expected desired : list val) (lexp ldes : loc) dq dq' : iProp Σ :=
+       AU <{ ∃∃ actual : list val, value γ actual }>
             @ ⊤ ∖ ↑N, ∅
-          <{ value γ vs', COMM src ↦∗{dq} vs' -∗ Φ #() }>.
+          <{ if decide (actual = expected) then value γ desired else value γ actual,
+             COMM lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #(bool_decide (actual = expected)) }>.
 
-  Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ γᵤ : gname) (src l' : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
-      ((src ↦∗{dq} vs' -∗ Φ #()) ∗ own γᵤ (◯ {[ l' ]}) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ AU_write Φ γ vs' src dq ∗ l' ↦∗ vs' ∗ ghost_var γₗ (1/2) true)
+  Definition cas_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (lexp ldes l' : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
+      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ l' ↦∗ desired ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ghost_var γₗ (1/2) false).  (* The failing write has linearized and returned *)
 
   Definition request_inv γ γₗ (l l' : loc) : iProp Σ :=
@@ -330,8 +331,8 @@ Section cached_wf.
         by case_bool_decide; first lia.
   Qed. *)
 
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ : gname) (valid : bool) (l backup : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (history : list (list val)) (vs : list val) requests,
+  Definition cached_wf_inv (γ γᵥ γₕ γᵣ : gname) (l : loc) (len : nat) : iProp Σ :=
+    ∃ (ver : nat) (history : list (list val)) (vs : list val) (valid : bool) (backup : loc) requests,
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
       (l +ₗ 1) ↦ (#valid, #backup)%V ∗
       (* backup always consistent with logical state *)
@@ -363,7 +364,7 @@ Section cached_wf.
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
-            array_copy_to #(dst +ₗ i) #(src +ₗ 1 +ₗ i) #(n - i)
+            array_copy_to #(dst +ₗ i) #(src +ₗ 2 +ₗ i) #(n - i)
           {{{ vers vdst', RET #(); 
               (* the destination array contains some values [vdst'] *)
               (dst +ₗ i) ↦∗ vdst' ∗
@@ -402,7 +403,7 @@ Section cached_wf.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E.
-      iInv cached_wfN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
+      iInv cached_wfN as "(%ver' & %history & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & >Hvalid & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
       destruct (Nat.even ver') eqn:Hparity.
       + iDestruct "Hlock" as ">(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
         wp_apply (wp_load_offset with "Hsrc").
@@ -414,7 +415,7 @@ Section cached_wf.
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
         iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
         iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iExists ver', history, vs. rewrite Hparity. by iFrame "∗ %".  }
+        { iExists ver', history, vs. rewrite Hparity. iFrame "∗ %".  }
         iModIntro.
         wp_store.
         wp_pures.
