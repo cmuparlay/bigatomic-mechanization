@@ -355,18 +355,20 @@ Section cached_wf.
       registry_inv γ (l +ₗ 1) requests ∗
       (* Big atomic is of fixed size *)
       ⌜length actual = len ∧ length cache = len⌝ ∗
-      (* The version number is twice (or one greater than twice) than number of versions*)
-      ⌜length log = S (Nat.div2 ver)⌝ ∗
+      (* The version number is twice (or one greater than twice) than number of versions *)
       (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
       [∗ list] '(backup', value) ∈ log, backup' ↦∗ value ∗
       (* The last item in the log corresponds to the currently installed backup pointer *)
       ⌜last log = Some (backup, actual)⌝ ∗
       (* Store full authoritative ownership of the log in the invariant *)
       log_auth_own γₕ 1 log ∗
+      (* The is a mapping in the index for every version *)
+      ⌜length index = S (Nat.div2 ver)⌝ ∗
       (* Because the mapping from versions to log entries is injective, the index should not contain duplicates *)
-      (* Moreover, every index should be less than the length of the log (to ensure every version) 
-         corresponds to a valid entry *)
-      ⌜NoDup index ∧ Forall (λ i, i < length log) index⌝ ∗
+      (* Moreover, every index should be less than the length of the log (to ensure every version
+         corresponds to a valid entry) *)
+      (* Additionally, it is sorted--the mapping should be monotonic *)
+      ⌜NoDup index ∧ Forall (λ i, i < length log) index ∧ StronglySorted Nat.le index⌝ ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
