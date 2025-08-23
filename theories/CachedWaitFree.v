@@ -91,9 +91,9 @@ Definition cas (n : nat) : val :=
         else #false
     else #false.
 
-Definition history := gmap nat $ agree $ list val.
+Definition history := gmap nat $ agree $ (loc * list val)%type.
 
-Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
+Definition historyUR := authUR $ gmapUR nat $ agreeR $ prodO locO (listO valO).
 
 Definition requestReg := gmap nat $ agree (gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO locO.
@@ -164,15 +164,15 @@ Section cached_wf.
 
   Definition writeN := N .@ "write".
 
-  Definition history_auth_own γᵥ (q : Qp) (history : list (list val)) := own γᵥ (●{#q} map_seq 0 (to_agree <$> history)).
+  Definition history_auth_own γᵥ (q : Qp) (history : list (loc * list val)%type) := own γᵥ (●{#q} map_seq 0 (to_agree <$> history)).
 
   Definition value γᵥ (vs : list val) : iProp Σ := ghost_var γᵥ (1/2) vs.
 
-  Definition history_frag_own γₕ i (value : list val) := own γₕ (◯ {[i := to_agree value]}).
+  Definition history_frag_own γₕ i (value : (loc * list val)%type) := own γₕ (◯ {[i := to_agree value]}).
 
-  Lemma history_auth_update (value : list val) γₕ (history : list (list val)) :
+  Lemma history_auth_update (l : loc) (value : list val) γₕ (history : list (loc * list val)%type) :
     history_auth_own γₕ 1 history ==∗
-      history_auth_own γₕ 1 (history ++ [value]) ∗ history_frag_own γₕ (length history) value.
+      history_auth_own γₕ 1 (history ++ [(l, value)]) ∗ history_frag_own γₕ (length history) (l, value).
   Proof.
     iIntros "H●".
     rewrite /history_auth_own /history_frag_own.
@@ -181,7 +181,7 @@ Section cached_wf.
       apply alloc_singleton_local_update 
         with 
           (i := length history)
-          (x := to_agree value).
+          (x := to_agree (l, value)).
       { rewrite lookup_map_seq_None length_fmap. by right. }
       constructor. }
     replace (length history) with (O + length (to_agree <$> history)) at 1 
@@ -267,18 +267,18 @@ Section cached_wf.
           <{ if decide (actual = expected) then value γ desired else value γ actual,
              COMM lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #(bool_decide (actual = expected)) }>.
 
-  Definition cas_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (lexp ldes l' : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
-      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ l' ↦∗ desired ∗ ghost_var γₗ (1/2) true)
+  Definition cas_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (lactual lexp ldes backup : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
+      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ backup ↦∗ desired ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ backup ↦∗ desired ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ghost_var γₗ (1/2) false).  (* The failing write has linearized and returned *)
 
-  Definition request_inv γ γₗ (l l' : loc) : iProp Σ :=
-    ghost_var γₗ (1/2) (bool_decide (l = l')) ∗
-    ∃ (Φ : val → iProp Σ) (γₜ : gname) (src : loc) (dq : dfrac) (vs : list val),
-      inv writeN (write_inv Φ γ γₗ γₜ src l' dq vs).
+  Definition request_inv γ γₗ (lactual lexp : loc) : iProp Σ :=
+    ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
+    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes : loc) (dq dq' : dfrac) (expected desired : list val),
+      inv writeN (cas_inv Φ γ γₗ γₜ lactual lexp ldes dq dq' expected desired).
 
-  Definition registry_inv γ l (requests : list (gname * loc)) : iProp Σ :=
-    [∗ list] '(γₗ, l') ∈ requests, request_inv γ γₗ l l'.
+  Definition registry_inv γ lactual (requests : list (gname * loc)) : iProp Σ :=
+    [∗ list] '(γₗ, lexp) ∈ requests, request_inv γ γₗ lactual lexp.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   (* Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
@@ -332,30 +332,32 @@ Section cached_wf.
   Qed. *)
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵣ : gname) (l : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (history : list (list val)) (vs : list val) (valid : bool) (backup : loc) requests,
+    ∃ (ver : nat) (history : list (loc * list val)%type) (actual cache : list val) (valid : bool) (backup : loc) requests,
+      (* Physical state of version *)
+      l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
       (l +ₗ 1) ↦ (#valid, #backup)%V ∗
+      (* Half ownership of logical state *)
+      ghost_var γ (1/2) actual ∗
       (* backup always consistent with logical state *)
-      backup ↦∗ vs ∗
+      backup ↦∗ actual ∗
       (* If the backup is validated, then the cache is unlocked *)
-      ⌜if valid then Nat.Even ver else True⌝ ∗
+      if valid then ⌜Nat.Even ver ∧ actual = cache⌝ else True ∗
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ (l +ₗ 1) requests ∗
-      (* Physical state of version *)
-      l ↦ #ver ∗
       (* Big atomic is of fixed size *)
-      ⌜length vs = len⌝ ∗
+      ⌜length actual = len ∧ length cache = len⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions*)
       ⌜length history = S (Nat.div2 ver)⌝ ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        ghost_var γ (1/2) vs ∗ history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ vs ∗ ⌜last history = Some vs⌝
+        history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ cache ∗ ⌜last history = Some cache⌝
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} vs.
+        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)

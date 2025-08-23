@@ -203,7 +203,7 @@ Section seqlock.
   Definition write_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (src : loc) (dq : dfrac) (vs' : list val) : iProp Σ :=
       ((src ↦∗{dq} vs' -∗ Φ #()) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
     ∨ (£ 1 ∗ AU_write Φ γ vs' src dq ∗ ghost_var γₗ (1/2) true)
-    ∨ (token γₜ ∗ ghost_var γₗ (1/2) false). (* The failing write has linearized and returned *)
+    ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b). (* The failing write has linearized and returned *)
 
   Definition request_inv γ γₗ ver ver' : iProp Σ :=
     ghost_var γₗ (1/2) (bool_decide (ver < ver')) ∗
@@ -225,7 +225,7 @@ Section seqlock.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
       iDestruct "Hreqs" as "[(Hlin & %Φ & %γₜ & %src & %dq & %vs' & #Hwinv) Hreqs']";
       iMod ("IH" with "Hγ Hreqs'") as "(Hreqs' & %vs'' & Hγ)".
-      iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & %b & >Hlin')]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ Hless].
         iMod ("Hclose" with "[HΦ Hlin]") as "_".
         { iLeft. rewrite Hless. iFrame. }
@@ -255,13 +255,11 @@ Section seqlock.
           rewrite /request_inv.
           rewrite -> bool_decide_eq_true_2 by lia.
           by iFrame "∗ #".
-      + iCombine "Hlin Hlin'" gives %[_ Hless].
+      + iCombine "Hlin Hlin'" gives %[_ <-].
+        iMod (ghost_var_update_halves (bool_decide (S ver < ver')) with "Hlin Hlin'") as "[Hlin Hlin']".
         iMod ("Hclose" with "[Htok Hlin]") as "_".
-        { do 2 iRight. rewrite Hless. iFrame. }
-        rewrite bool_decide_eq_false in Hless.
-        assert (ver ≥ ver') as Hge by lia.
-        iFrame "∗ #".
-        by case_bool_decide; first lia.
+        { do 2 iRight. iFrame. }
+        by iFrame "∗ #".
   Qed.
 
   Definition seqlock_inv (γ γᵥ γₕ γᵣ : gname) (l : loc) (len : nat) : iProp Σ :=
