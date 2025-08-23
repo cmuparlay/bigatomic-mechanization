@@ -270,12 +270,12 @@ Section cached_wf.
   Definition cas_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (lactual lexp ldes backup : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
       ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ backup ↦∗ desired ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
     ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ backup ↦∗ desired ∗ ghost_var γₗ (1/2) true)
-    ∨ (token γₜ ∗ ghost_var γₗ (1/2) false).  (* The failing write has linearized and returned *)
+    ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
   Definition request_inv γ γₗ (lactual lexp : loc) : iProp Σ :=
     ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
-    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes : loc) (dq dq' : dfrac) (expected desired : list val),
-      inv writeN (cas_inv Φ γ γₗ γₜ lactual lexp ldes dq dq' expected desired).
+    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes backup : loc) (dq dq' : dfrac) (expected desired : list val),
+      inv writeN (cas_inv Φ γ γₗ γₜ lactual lexp ldes backup dq dq' expected desired).
 
   Definition registry_inv γ lactual (requests : list (gname * loc)) : iProp Σ :=
     [∗ list] '(γₗ, lexp) ∈ requests, request_inv γ γₗ lactual lexp.
@@ -350,11 +350,14 @@ Section cached_wf.
       ⌜length actual = len ∧ length cache = len⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions*)
       ⌜length history = S (Nat.div2 ver)⌝ ∗
+      (* For every pair of (backup', cache') in the history, either [backup'] is currently stalled, or
+         we have ownership of the old points-to predicate *)
+      [∗ list] '(backup', cache') ∈ history, ⌜backup = backup'⌝ ∨ backup' ↦∗ cache' ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ cache ∗ ⌜last history = Some cache⌝
+        history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ cache ∗ ⌜snd <$> last history = Some cache⌝
       else 
         (* If locked, have only read-only access to ensure one updater *)
         history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
