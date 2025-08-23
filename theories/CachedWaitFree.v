@@ -91,9 +91,13 @@ Definition cas (n : nat) : val :=
         else #false
     else #false.
 
-Definition history := gmap nat $ agree $ (loc * list val)%type.
+Definition log := gmap nat $ agree $ (loc * list val)%type.
 
-Definition historyUR := authUR $ gmapUR nat $ agreeR $ prodO locO (listO valO).
+Definition index := gmap nat $ agree nat.
+
+Definition indexUR := authUR $ gmapUR nat (agreeR natO).
+
+Definition logUR := authUR $ gmapUR nat $ agreeR $ prodO locO (listO valO).
 
 Definition requestReg := gmap nat $ agree (gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO locO.
@@ -102,7 +106,8 @@ Definition usedUR := authUR $ gsetUR $ locO.
 
 Class cached_wfG (Σ : gFunctors) := {
   cached_wf_heapGS :: heapGS Σ;
-  cached_wf_historyUR :: inG Σ historyUR;
+  cached_wf_logUR :: inG Σ logUR;
+  cached_wf_indexUR :: inG Σ indexUR;
   cached_wf_usedUR :: inG Σ usedUR;
   cached_wf_requestRegUR :: inG Σ requestRegUR;
   cached_wf_mono_natG :: mono_natG Σ;
@@ -164,35 +169,39 @@ Section cached_wf.
 
   Definition writeN := N .@ "write".
 
-  Definition history_auth_own γᵥ (q : Qp) (history : list (loc * list val)%type) := own γᵥ (●{#q} map_seq 0 (to_agree <$> history)).
+  Definition index_auth_own γᵢ (q : Qp) (index : list nat) := own γᵢ (●{#q} map_seq 0 (to_agree <$> index)).
+
+  Definition log_auth_own γᵥ (q : Qp) (log : list (loc * list val)%type) := own γᵥ (●{#q} map_seq 0 (to_agree <$> log)).
 
   Definition value γᵥ (vs : list val) : iProp Σ := ghost_var γᵥ (1/2) vs.
 
-  Definition history_frag_own γₕ i (value : (loc * list val)%type) := own γₕ (◯ {[i := to_agree value]}).
+  Definition log_frag_own γₕ i (value : (loc * list val)%type) := own γₕ (◯ {[i := to_agree value]}).
 
-  Lemma history_auth_update (l : loc) (value : list val) γₕ (history : list (loc * list val)%type) :
-    history_auth_own γₕ 1 history ==∗
-      history_auth_own γₕ 1 (history ++ [(l, value)]) ∗ history_frag_own γₕ (length history) (l, value).
+  Definition index_frag_own γᵢ i (index : list nat) := own γᵢ (◯ {[i := to_agree i]}).
+
+  Lemma log_auth_update (l : loc) (value : list val) γₕ (log : list (loc * list val)%type) :
+    log_auth_own γₕ 1 log ==∗
+      log_auth_own γₕ 1 (log ++ [(l, value)]) ∗ log_frag_own γₕ (length log) (l, value).
   Proof.
     iIntros "H●".
-    rewrite /history_auth_own /history_frag_own.
+    rewrite /log_auth_own /log_frag_own.
     iMod (own_update with "H●") as "[H● H◯]".
     { eapply auth_update_alloc.
       apply alloc_singleton_local_update 
         with 
-          (i := length history)
+          (i := length log)
           (x := to_agree (l, value)).
       { rewrite lookup_map_seq_None length_fmap. by right. }
       constructor. }
-    replace (length history) with (O + length (to_agree <$> history)) at 1 
+    replace (length log) with (O + length (to_agree <$> log)) at 1 
           by (now rewrite length_fmap).
     rewrite -map_seq_snoc fmap_snoc. by iFrame.
   Qed.
 
-  Lemma history_frag_alloc i value γₕ history q :
-    history !! i = Some value →
-      history_auth_own γₕ q history ==∗
-        history_auth_own γₕ q history ∗ history_frag_own γₕ i value.
+  Lemma log_frag_alloc i value γₕ log q :
+    log !! i = Some value →
+      log_auth_own γₕ q log ==∗
+        log_auth_own γₕ q log ∗ log_frag_own γₕ i value.
   Proof.
     iIntros (Hlookup) "Hauth".
     iMod (own_update with "Hauth") as "[H● H◯]".
@@ -204,10 +213,10 @@ Section cached_wf.
     by iFrame.
   Qed.
 
-  Lemma history_auth_frag_agree γₕ q history i value : 
-    history_auth_own γₕ q history -∗
-      history_frag_own γₕ i value -∗
-        ⌜history !! i = Some value⌝.
+  Lemma log_auth_frag_agree γₕ q log i value : 
+    log_auth_own γₕ q log -∗
+      log_frag_own γₕ i value -∗
+        ⌜log !! i = Some value⌝.
   Proof.
     iIntros "H● H◯".
     iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
@@ -331,16 +340,14 @@ Section cached_wf.
         by case_bool_decide; first lia.
   Qed. *)
 
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ : gname) (l : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (history : list (loc * list val)%type) (actual cache : list val) (valid : bool) (backup : loc) requests,
+  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
+    ∃ (ver : nat) (log : list (loc * list val)%type) (actual cache : list val) (valid : bool) (backup : loc) requests (index : list nat),
       (* Physical state of version *)
       l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
       (l +ₗ 1) ↦ (#valid, #backup)%V ∗
       (* Half ownership of logical state *)
       ghost_var γ (1/2) actual ∗
-      (* backup always consistent with logical state *)
-      backup ↦∗ actual ∗
       (* If the backup is validated, then the cache is unlocked *)
       if valid then ⌜Nat.Even ver ∧ actual = cache⌝ else True ∗
       registry γᵣ requests ∗
@@ -349,23 +356,30 @@ Section cached_wf.
       (* Big atomic is of fixed size *)
       ⌜length actual = len ∧ length cache = len⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions*)
-      ⌜length history = S (Nat.div2 ver)⌝ ∗
-      (* For every pair of (backup', cache') in the history, either [backup'] is currently stalled, or
-         we have ownership of the old points-to predicate *)
-      [∗ list] '(backup', cache') ∈ history, ⌜backup = backup'⌝ ∨ backup' ↦∗ cache' ∗
+      ⌜length log = S (Nat.div2 ver)⌝ ∗
+      (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
+      [∗ list] '(backup', value) ∈ log, backup' ↦∗ value ∗
+      (* The last item in the log corresponds to the currently installed backup pointer *)
+      ⌜last log = Some (backup, actual)⌝ ∗
+      (* Store full authoritative ownership of the log in the invariant *)
+      log_auth_own γₕ 1 log ∗
+      (* Because the mapping from versions to log entries is injective, the index should not contain duplicates *)
+      (* Moreover, every index should be less than the length of the log (to ensure every version) 
+         corresponds to a valid entry *)
+      ⌜NoDup index ∧ Forall (λ i, i < length log) index⌝ ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        history_auth_own γₕ 1 history ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ cache ∗ ⌜snd <$> last history = Some cache⌝
+        index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ cache
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        history_auth_own γₕ (1/2) history ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
+        index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
 
-  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ (dst src : loc) (n i : nat) vdst ver :
+  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
@@ -384,8 +398,8 @@ Section cached_wf.
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
                   (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
-                    ∃ vs,
-                      history_frag_own γₕ (Nat.div2 ver') vs ∗
+                    ∃ l vs,
+                      log_frag_own γₕ (Nat.div2 ver') (l, vs) ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
                       ⌜vs !! (i + j)%nat = Some v⌝)) }}}.
   Proof.
@@ -408,19 +422,19 @@ Section cached_wf.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E.
-      iInv cached_wfN as "(%ver' & %history & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & >Hvalid & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl". simplify_eq.
+      iInv cached_wfN as "(%ver' & %log & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & >Hvalid & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl". simplify_eq.
       destruct (Nat.even ver') eqn:Hparity.
       + iDestruct "Hlock" as ">(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
         wp_apply (wp_load_offset with "Hsrc").
         { apply list_lookup_lookup_total_lt. lia. }
-        iMod (history_frag_alloc with "Hγₕ") as "[H● #H◯]".
+        iMod (log_frag_alloc with "Hγₕ") as "[H● #H◯]".
         { by rewrite last_lookup in Hcons. }
-        rewrite Hhistory /=.
+        rewrite Hlog /=.
         iIntros "Hsrc".
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
         iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
         iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iExists ver', history, vs. rewrite Hparity. iFrame "∗ %".  }
+        { iExists ver', log, vs. rewrite Hparity. iFrame "∗ %".  }
         iModIntro.
         wp_store.
         wp_pures.
@@ -491,10 +505,10 @@ Section cached_wf.
             rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
   Qed.
 
-  Lemma history_auth_auth_agree γₕ p q history history' :
-    history_auth_own γₕ p history -∗
-      history_auth_own γₕ q history'  -∗
-        ⌜history = history'⌝.
+  Lemma log_auth_auth_agree γₕ p q log log' :
+    log_auth_own γₕ p log -∗
+      log_auth_own γₕ q log'  -∗
+        ⌜log = log'⌝.
   Proof.
     iIntros "H H'".
     iCombine "H H'" gives %Hagree%auth_auth_dfrac_op_inv.
@@ -632,7 +646,7 @@ Section cached_wf.
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv cached_wfN as "(%ver & %history & %vs'' & %registry & Hreg & Hreginv & >Hversion & >%Hlen' & >%Hhistory & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver & %log & %vs'' & %registry & Hreg & Hreginv & >Hversion & >%Hlen' & >%Hlog & Hlock)" "Hcl".
       assert (i < length vs'') as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
       + iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst'' & %Hcons') /=".
@@ -648,7 +662,7 @@ Section cached_wf.
         iDestruct "Hdst" as "[Hdst Hdst'']".
         iPoseProof ("Hacc" with "Hdst''") as "Hdst''".
         iMod ("Hcl" with "[$Hreg $Hreginv $Hversion Hγₕ Hγᵥ Hdst'']") as "_".
-        { iExists history, (<[i:=v']> vs''). rewrite Heven. iFrame "∗ %".
+        { iExists log, (<[i:=v']> vs''). rewrite Heven. iFrame "∗ %".
           iPureIntro. by rewrite length_insert. }
         iModIntro.
         wp_pures.
@@ -768,7 +782,7 @@ Section cached_wf.
     wp_rec.
     wp_pures.
     wp_bind (! _)%E.
-    iInv cached_wfN as "(%ver' & %history & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver' & %log & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl".
     wp_load.
     destruct (Nat.even ver') eqn:Heven.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
@@ -875,7 +889,7 @@ Section cached_wf.
                   ={⊤}=∗ Φ #().
   Proof.
     iIntros "#Hinv #Hwinv #◯Hreg #Hlb Hγₜ [Hcredit Hcredit'] Hsrc".
-    iInv cached_wfN as "(%ver' & %history & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver' & %log & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hlog & Hlock)" "Hcl".
     iMod (lc_fupd_elim_later with "Hcredit Hreginv") as "Hreginv".
     iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
     (* Consider which state our helping request is in*)
@@ -919,7 +933,7 @@ Section cached_wf.
     wp_pure credit:"Hcredit".
     wp_pure credit:"Hcredit'".
     wp_bind (! _)%E.
-    iInv cached_wfN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver & %log & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hlog & Hlock)" "Hcl".
     iMod (ghost_var_alloc true) as "(%γₗ & Hγₗ & Hγₗ')".
     iMod token_alloc as "[%γₜ Hγₜ]".
     iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit' AU Hγₗ']") as "#Hwinv".
@@ -931,7 +945,7 @@ Section cached_wf.
       iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
       iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit]") as "_".
       { rewrite /cached_wf_inv.
-        iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
+        iExists ver, log, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
         rewrite bool_decide_eq_true_2.
         - simpl. by iFrame.
         - lia. }
@@ -941,7 +955,7 @@ Section cached_wf.
       { intros [=Heq]. by rewrite Zrem_even even_inj Heven in Heq. }
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
-      iInv cached_wfN as "(%ver' & %history' & %vs'' & %registry' & Hreg & Hreginv & >Hver & >%Hlen' & >%Hhistory' & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log' & %vs'' & %registry' & Hreg & Hreginv & >Hver & >%Hlen' & >%Hlog' & Hlock)" "Hcl".
       destruct (decide (ver = ver')) as [<- | Hne].
       + rewrite Heven.
         wp_cmpxchg_suc.
@@ -950,7 +964,7 @@ Section cached_wf.
         iMod (mono_nat_own_update (S ver) with "Hγᵥ") as "[[Hγᵥ Hγᵥ'] #Hlb']".
         { lia. }
         iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
-        { rewrite /cached_wf_inv. iExists (S ver), history', vs'', registry'.
+        { rewrite /cached_wf_inv. iExists (S ver), log', vs'', registry'.
           rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
           rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
           rewrite Heven /=.
@@ -963,7 +977,7 @@ Section cached_wf.
         wp_apply (wp_array_copy_to_half _ _ _ _ _ _ vs'' vs' with "[//] [$] [-]"); try done.
         iIntros "!> [Hdst Hsrc]".
         wp_pures.
-        iInv cached_wfN as "(%ver' & %history'' & %vs''' & %registry'' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory'' & Hlock)" "Hcl".
+        iInv cached_wfN as "(%ver' & %log'' & %vs''' & %registry'' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hlog'' & Hlock)" "Hcl".
         destruct (Nat.even ver') eqn:Heven''.
         { iMod "Hlock" as "(_ & _ & Hγᵥ' & _ & _)". by iDestruct (mono_nat_auth_own_agree with "Hγᵥ Hγᵥ'") as %[Hq _]. }
         iMod "Hlock" as "(Hγₕ' & Hγᵥ' & Hdst')".
@@ -976,7 +990,7 @@ Section cached_wf.
         iCombine "Hγᵥ Hγᵥ'" as "Hγᵥ".
         iMod (mono_nat_own_update (S (S ver)) with "Hγᵥ") as "[Hγᵥ #Hlb'']".
         { lia. }
-        iPoseProof (history_auth_auth_agree with "Hγₕ Hγₕ'") as "<-".
+        iPoseProof (log_auth_auth_agree with "Hγₕ Hγₕ'") as "<-".
         iCombine "Hγₕ Hγₕ'" as "Hγₕ".
         iCombine "Hγ Hγ'" as "Hγ".
         rewrite Qp.quarter_quarter.
@@ -988,7 +1002,7 @@ Section cached_wf.
         rewrite -> bool_decide_eq_true_2 by lia.
         iMod (linearize_writes with "Hγ Hlft") as "(Hlft & %vs₁ & Hγ)".
         iMod (linearize_writes with "Hγ Hrht") as "(Hrht & %vs₂ & Hγ)".
-        iMod (history_auth_update vs' with "Hγₕ") as "[●Hγₕ #◯Hγₕ]".
+        iMod (log_auth_update vs' with "Hγₕ") as "[●Hγₕ #◯Hγₕ]".
         iInv writeN as "[[HΦ >Hγₗ'] | [(>_ & AU & >Hγₗ') | (>Htok & >Hlin')]]" "Hclose".
         { by iCombine "Hγₗ Hγₗ'" gives %[]. }
         { iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
@@ -999,12 +1013,12 @@ Section cached_wf.
           iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
           { do 2 iRight. iFrame. }
           iMod ("Hcl" with "[-HΦ Hsrc]") as "_".
-          { iExists (S (S ver)), (history' ++ [vs']), vs', registry''.
+          { iExists (S (S ver)), (log' ++ [vs']), vs', registry''.
             rewrite <- Nat.Even_div2 by now rewrite -Nat.even_spec.
             rewrite (take_drop_middle _ _ _ Hagree).
             rewrite /= Heven. change 2%Z with (Z.of_nat 2).
             rewrite -Nat2Z.inj_add /=.
-            rewrite last_snoc last_length Hhistory'. iFrame.
+            rewrite last_snoc last_length Hlog'. iFrame.
             iNext. iSplit; last done.
             rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv big_sepL_app big_sepL_cons.
             iFrame "∗ #".
@@ -1069,7 +1083,7 @@ Section cached_wf.
       iDestruct (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
       iMod ("Hcl" with "[-Hsrc Hγₜ Hcredit]") as "_".
       { rewrite /cached_wf_inv.
-        iExists ver, history, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
+        iExists ver, log, vs, (registry ++ [(γₗ, S (Nat.div2 ver))]). rewrite Heven. iFrame "∗ #".
         rewrite bool_decide_eq_true_2.
         - simpl. by iFrame.
         - lia. }
@@ -1105,16 +1119,16 @@ Section cached_wf.
     iLöb as "IH".
     wp_rec. wp_pures.
     wp_bind (! _)%E.
-    iInv cached_wfN as "(%ver & %history & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hhistory & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver & %log & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hlog & Hlock)" "Hcl".
     wp_load.
     destruct (Nat.even ver) eqn:Hparity.
     - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
       iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod (history_frag_alloc with "Hγₕ") as "[H● #H◯]".
+      iMod (log_frag_alloc with "Hγₕ") as "[H● #H◯]".
       { by rewrite last_lookup in Hcons. }
       iMod ("Hcl" with "[-AU]") as "_".
       { rewrite /cached_wf_inv.
-        iExists ver, history, vs. rewrite Hparity. by iFrame. }
+        iExists ver, log, vs. rewrite Hparity. by iFrame. }
       iModIntro.
       wp_pures.
       rewrite bool_decide_eq_false_2; first last.
@@ -1125,15 +1139,15 @@ Section cached_wf.
       iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
       wp_pures.
       wp_bind (! _)%E.
-      iInv cached_wfN as "(%ver' & %history' & %vs' & %registry' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory' & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log' & %vs' & %registry' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hlog' & Hlock)" "Hcl".
       destruct (decide (ver = ver')) as [<- | Hne].
       + rewrite Hparity.
         iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons')".
-        rewrite /history_frag_own.
-        iPoseProof (history_auth_frag_agree with "Hγₕ H◯") as "%Hlookup".
-        rewrite last_lookup Hhistory' /= in Hcons'.
-        rewrite Hhistory /=.
-        rewrite Hhistory /= in Hlookup.
+        rewrite /log_frag_own.
+        iPoseProof (log_auth_frag_agree with "Hγₕ H◯") as "%Hlookup".
+        rewrite last_lookup Hlog' /= in Hcons'.
+        rewrite Hlog /=.
+        rewrite Hlog /= in Hlookup.
         assert (Some vs = Some vs') as [=<-].
         { by rewrite -Hlookup -Hcons'. }
         clear Hcons'. simplify_eq.
@@ -1162,16 +1176,16 @@ Section cached_wf.
         iMod ("Hconsume" $! dst with "[$Hγ']") as "HΦ".
         iMod ("Hcl" with "[-HΦ Hdst]") as "_".
         { rewrite /cached_wf_inv.
-          iExists ver, history', vs. rewrite Hparity. iFrame "∗ %".
-          iPureIntro. rewrite last_lookup. by rewrite Hhistory'. }
+          iExists ver, log', vs. rewrite Hparity. iFrame "∗ %".
+          iPureIntro. rewrite last_lookup. by rewrite Hlog'. }
         iModIntro. wp_pures. rewrite bool_decide_eq_true_2; last done.
         wp_pures. iModIntro. by iApply "HΦ".
       + destruct (Nat.even ver') eqn:Hparity'''.
-        * iMod "Hlock" as "(Hversion & Hsrc & History)".
+        * iMod "Hlock" as "(Hversion & Hsrc & log)".
           wp_load.
           iMod ("Hcl" with "[-AU]") as "_".
           { rewrite /cached_wf_inv.
-            iExists ver', history', vs'. rewrite Hparity'''. by iFrame "∗ %". }
+            iExists ver', log', vs'. rewrite Hparity'''. by iFrame "∗ %". }
           iModIntro.
           wp_pures.
           case_bool_decide; simplify_eq.
@@ -1181,7 +1195,7 @@ Section cached_wf.
           wp_load.
           iMod ("Hcl" with "[-AU]") as "_".
           { rewrite /cached_wf_inv.
-            iExists ver', history', vs'. rewrite Hparity'''. by iFrame "∗ %". }
+            iExists ver', log', vs'. rewrite Hparity'''. by iFrame "∗ %". }
           iModIntro.
           wp_pures.
           case_bool_decide; simplify_eq.
@@ -1190,7 +1204,7 @@ Section cached_wf.
     - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hsrc)".
       iMod ("Hcl" with "[-AU]") as "_".
       { rewrite /cached_wf_inv.
-        iExists ver, history, vs. rewrite Hparity. by iFrame "∗ %". }
+        iExists ver, log, vs. rewrite Hparity. by iFrame "∗ %". }
       iModIntro.
       wp_pures.
       rewrite bool_decide_eq_true_2; first last.
