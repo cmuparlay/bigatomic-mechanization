@@ -4,6 +4,7 @@ From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
 From iris.heap_lang Require Import lang proofmode notation lib.array.
 Import derived_laws.bi.
 Require Import  Coq.ZArith.Zquot.
+Require Import stdpp.gmap.
 
 Ltac Zify.zify_post_hook ::= Z.to_euclidean_division_equations.
 
@@ -95,9 +96,9 @@ Definition log := gmap nat $ agree $ (loc * list val)%type.
 
 Definition index := gmap nat $ agree nat.
 
-Definition indexUR := authUR $ gmapUR nat (agreeR natO).
+Definition indexUR := authUR $ gmapUR nat (agreeR locO).
 
-Definition logUR := authUR $ gmapUR nat $ agreeR $ prodO locO (listO valO).
+Definition logUR := authUR $ gmapUR loc $ agreeR $ listO valO.
 
 Definition requestReg := gmap nat $ agree (gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO locO.
@@ -118,8 +119,6 @@ Class cached_wfG (Σ : gFunctors) := {
 
 Section cached_wf.
   Context `{!cached_wfG Σ, !heapGS Σ}.
-
-  Check gsetUR.
 
   Lemma wp_array_equal (l l' : loc) (dq dq' : dfrac) (vs vs' : list val) :
     length vs = length vs' → Forall2 vals_compare_safe vs vs' →
@@ -167,35 +166,35 @@ Section cached_wf.
 
   Definition cached_wfN := N .@ "cached_wf".
 
-  Definition writeN := N .@ "write".
+  Definition casN := N .@ "write".
 
-  Definition index_auth_own γᵢ (q : Qp) (index : list nat) := own γᵢ (●{#q} map_seq 0 (to_agree <$> index)).
+  Definition index_auth_own γᵢ (q : Qp) (index : list loc) := own γᵢ (●{#q} map_seq 0 (to_agree <$> index)).
 
-  Definition log_auth_own γᵥ (q : Qp) (log : list (loc * list val)%type) := own γᵥ (●{#q} map_seq 0 (to_agree <$> log)).
+  Definition log_auth_own γᵥ (q : Qp) (log : gmap loc (list val)) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
 
   Definition value γᵥ (vs : list val) : iProp Σ := ghost_var γᵥ (1/2) vs.
 
-  Definition log_frag_own γₕ i (value : (loc * list val)%type) := own γₕ (◯ {[i := to_agree value]}).
+  Definition log_frag_own γₕ l (value : list val) := own γₕ (◯ {[l := to_agree value]}).
 
-  Definition index_frag_own γᵢ i (index : list nat) := own γᵢ (◯ {[i := to_agree i]}).
+  Definition index_frag_own γᵢ i (value : list val) := own γᵢ (◯ {[i := to_agree value]}).
 
-  Lemma log_auth_update (l : loc) (value : list val) γₕ (log : list (loc * list val)%type) :
+  Lemma log_auth_update (l : loc) (value : list val) γₕ (log : gmap loc (list val)) :
+    log !! l = None →
     log_auth_own γₕ 1 log ==∗
-      log_auth_own γₕ 1 (log ++ [(l, value)]) ∗ log_frag_own γₕ (length log) (l, value).
+      log_auth_own γₕ 1 (<[l := value]>log) ∗ log_frag_own γₕ l value.
   Proof.
-    iIntros "H●".
+    iIntros (Hfresh) "H●".
     rewrite /log_auth_own /log_frag_own.
     iMod (own_update with "H●") as "[H● H◯]".
     { eapply auth_update_alloc.
       apply alloc_singleton_local_update 
         with 
-          (i := length log)
-          (x := to_agree (l, value)).
-      { rewrite lookup_map_seq_None length_fmap. by right. }
+          (i := l)
+          (x := to_agree value).
+      { by rewrite lookup_fmap fmap_None. }
       constructor. }
-    replace (length log) with (O + length (to_agree <$> log)) at 1 
-          by (now rewrite length_fmap).
-    rewrite -map_seq_snoc fmap_snoc. by iFrame.
+    rewrite fmap_insert.
+    by iFrame.
   Qed.
 
   Lemma log_frag_alloc i value γₕ log q :
@@ -209,7 +208,8 @@ Section cached_wf.
       { apply _. }
       apply singleton_included_l with (i := i).
       exists (to_agree value). split; last done.
-      rewrite lookup_map_seq_0 list_lookup_fmap Hlookup //. }
+      rewrite lookup_fmap Hlookup //.
+    }
     by iFrame.
   Qed.
 
@@ -225,7 +225,7 @@ Section cached_wf.
     pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
     rewrite -Hvs'' to_agree_included in H. simplify_eq.
     iPureIntro. apply leibniz_equiv, (inj (fmap to_agree)).
-    rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
+    rewrite -lookup_fmap /= Hvs'' //.
   Qed.
 
   Definition registry γᵣ (requests : list (gname * loc)) :=
@@ -277,37 +277,40 @@ Section cached_wf.
              COMM lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #(bool_decide (actual = expected)) }>.
 
   Definition cas_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (lactual lexp ldes backup : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
-      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ backup ↦∗ desired ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ backup ↦∗ desired ∗ ghost_var γₗ (1/2) true)
+      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
-  Definition request_inv γ γₗ (lactual lexp : loc) : iProp Σ :=
+  Definition request_inv γ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
-    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes backup : loc) (dq dq' : dfrac) (expected desired : list val),
-      inv writeN (cas_inv Φ γ γₗ γₜ lactual lexp ldes backup dq dq' expected desired).
+    ⌜lexp ∈ used⌝ ∗
+    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes backup : loc) (dq dq' : dfrac) (desired : list val),
+      inv casN (cas_inv Φ γ γₗ γₜ lactual lexp ldes backup dq dq' actual desired).
 
-  Definition registry_inv γ lactual (requests : list (gname * loc)) : iProp Σ :=
-    [∗ list] '(γₗ, lexp) ∈ requests, request_inv γ γₗ lactual lexp.
+  Definition registry_inv γ lactual actual (requests : list (gname * loc)) (used : gset loc) : iProp Σ :=
+    [∗ list] '(γₗ, lexp) ∈ requests,
+      request_inv γ γₗ lactual lexp actual used.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
-  (* Lemma linearize_writes γ (ver : nat) (vs : list val) requests :
-    ghost_var γ (1/2) vs -∗
-      registry_inv γ ver requests ={⊤ ∖ ↑cached_wfN}=∗ 
-        registry_inv γ (S ver) requests ∗ ∃ vs' : list val, ghost_var γ (1/2) vs'.
+  Lemma linearize_writes γ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gset loc) :
+    lactual ≠ lactual' → actual ≠ actual' →
+      ghost_var γ (1/2) actual' -∗
+        registry_inv γ lactual actual requests used ={⊤ ∖ ↑cached_wfN}=∗ 
+          registry_inv γ lactual' actual' requests used ∗ ghost_var γ (1/2) actual'.
   Proof.
-    iIntros "Hγ Hreqs".
-    iInduction requests as [|[γₗ ver'] reqs'] "IH" forall (vs).
+    iIntros (Hsep Hne) "Hγ Hreqs".
+    iInduction requests as [|[γₗ lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
-      iDestruct "Hreqs" as "[(Hlin & %Φ & %γₜ & %src & %dq & %vs' & #Hwinv) Hreqs']";
-      iMod ("IH" with "Hγ Hreqs'") as "(Hreqs' & %vs'' & Hγ)".
-      iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
-      + iCombine "Hlin Hlin'" gives %[_ Hless].
-        iMod ("Hclose" with "[HΦ Hlin]") as "_".
-        { iLeft. rewrite Hless. iFrame. }
-        rewrite bool_decide_eq_false in Hless.
-        assert (ver ≥ ver') as Hge by lia.
+      iDestruct "Hreqs" as "[(Hlin & %Φ & %γₜ & %ldes & %backup & %dq & %dq' & %desired & #Hwinv) Hreqs']".
+      iMod ("IH" with "Hγ Hreqs'") as "[Hreqinv Hγ]".
+      iInv casN as "[(HΦ & >Hbackup & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      + iCombine "Hlin Hlin'" gives %[_ ->].
+        (* rewrite bool_decide_eq_false in Hneq. *)
+        iMod ("Hclose" with "[HΦ Hlin Hbackup]") as "_".
+        { iLeft. iFrame. }
         iFrame "∗ #".
+        rewrite /request_inv bool_decide_eq_false_2. Hneq.
         by case_bool_decide; first lia.
       + iCombine "Hlin Hlin'" gives %[_ Hless].
         destruct (decide (ver' = S ver)) as [-> | Hne].
@@ -338,7 +341,7 @@ Section cached_wf.
         assert (ver ≥ ver') as Hge by lia.
         iFrame "∗ #".
         by case_bool_decide; first lia.
-  Qed. *)
+  Qed.
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (log : list (loc * list val)%type) (actual cache : list val) (valid : bool) (backup : loc) requests (index : list nat),
@@ -882,7 +885,7 @@ Section cached_wf.
 
   Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ l n src dq vs' ver i :
     inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ l n) -∗
-      inv writeN (write_inv Φ γ γₗ γₜ src dq vs') -∗
+      inv casN (write_inv Φ γ γₗ γₜ src dq vs') -∗
         registered γᵣ i γₗ (S (Nat.div2 ver)) -∗
           mono_nat_lb_own γᵥ (S (S ver)) -∗ 
             token γₜ -∗ 
@@ -896,7 +899,7 @@ Section cached_wf.
     iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
     (* Consider which state our helping request is in*)
     iPoseProof (big_sepL_lookup_acc _ _ _ _ Hagree with "Hreginv") as "[[Hlin _] Hrest]".
-    iInv writeN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+    iInv casN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
     { iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
       { do 2 iRight. iFrame. }
       iMod ("Hcl" with "[-HΦ Hsrc Hcredit']") as "_".
@@ -938,7 +941,7 @@ Section cached_wf.
     iInv cached_wfN as "(%ver & %log & %vs & %registry & Hreg & Hreginv & >Hver & >%Hlen & >%Hlog & Hlock)" "Hcl".
     iMod (ghost_var_alloc true) as "(%γₗ & Hγₗ & Hγₗ')".
     iMod token_alloc as "[%γₜ Hγₜ]".
-    iMod (inv_alloc writeN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit' AU Hγₗ']") as "#Hwinv".
+    iMod (inv_alloc casN _ (write_inv Φ γ γₗ γₜ src dq vs') with "[Hcredit' AU Hγₗ']") as "#Hwinv".
     { iRight. iLeft. iFrame. }
     wp_load.
     iMod (registry_update γₗ (S (Nat.div2 ver)) with "[$]") as "[●Hreg #◯Hreg]".
@@ -1005,7 +1008,7 @@ Section cached_wf.
         iMod (linearize_writes with "Hγ Hlft") as "(Hlft & %vs₁ & Hγ)".
         iMod (linearize_writes with "Hγ Hrht") as "(Hrht & %vs₂ & Hγ)".
         iMod (log_auth_update vs' with "Hγₕ") as "[●Hγₕ #◯Hγₕ]".
-        iInv writeN as "[[HΦ >Hγₗ'] | [(>_ & AU & >Hγₗ') | (>Htok & >Hlin')]]" "Hclose".
+        iInv casN as "[[HΦ >Hγₗ'] | [(>_ & AU & >Hγₗ') | (>Htok & >Hlin')]]" "Hclose".
         { by iCombine "Hγₗ Hγₗ'" gives %[]. }
         { iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
           iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
