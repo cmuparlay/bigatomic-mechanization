@@ -277,9 +277,13 @@ Section cached_wf.
              COMM lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #(bool_decide (actual = expected)) }>.
 
   Definition cas_inv (Φ : val → iProp Σ) (γ γₑ γₗ γₜ : gname) (lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
-      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
+      ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
     ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
+
+  Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
+    ([∗ map] l ↦ value ∈ log, l ↦∗ value ∧ ⌜length value = n⌝).
+
 
   Definition request_inv γ γₑ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
@@ -292,9 +296,11 @@ Section cached_wf.
     [∗ list] '(γₗ, lexp) ∈ requests,
       request_inv γ γₑ γₗ lactual lexp actual used.
 
+  Definition
+
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   Lemma linearize_writes γ γₑ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
-    lactual ≠ lactual' → actual ≠ actual' → lactual' ∈ dom log →
+    lactual ≠ lactual' → actual ≠ actual' → lactual' ↦∗ actual' →
       ([∗ map] l ↦ value ∈ log, l ↦∗ value) -∗
       ghost_var γ (1/2) actual' -∗
         registry_inv γ γₑ lactual actual requests (dom log) ={⊤ ∖ ↑cached_wfN}=∗
@@ -306,7 +312,7 @@ Section cached_wf.
     iInduction requests as [|[γₗ lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
-      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %desired & #Hwinv) Hreqs']".
+      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %desired & %expected & Hexpected & #Hwinv) Hreqs']".
       iMod ("IH" with "Hlog Hγ Hreqs'") as "(Hlog & Hγ & Hreqinv)".
       iInv casN as "[(HΦ & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
@@ -315,8 +321,10 @@ Section cached_wf.
         { iLeft. iFrame. }
         iFrame "∗ # %".
         rewrite /request_inv.
-        case_bool_decide as Halias.
-        * subst.
+        destruct (decide (lactual' = lexp)) as [-> | Hneq].
+        * 
+          subst.
+
         rewrite /request_inv bool_decide_eq_false_2.
         
         Hneq.
