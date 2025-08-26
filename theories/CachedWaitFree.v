@@ -276,41 +276,50 @@ Section cached_wf.
           <{ if decide (actual = expected) then value γ desired else value γ actual,
              COMM lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #(bool_decide (actual = expected)) }>.
 
-  Definition cas_inv (Φ : val → iProp Σ) (γ γₗ γₜ : gname) (lactual lexp ldes backup : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
+  Definition cas_inv (Φ : val → iProp Σ) (γ γₑ γₗ γₜ : gname) (lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
       ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq ∗ ghost_var γₗ (1/2) true)
+    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
-  Definition request_inv γ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
-    ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
+  Definition request_inv γ γₑ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
-    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes backup : loc) (dq dq' : dfrac) (desired : list val),
-      inv casN (cas_inv Φ γ γₗ γₜ lactual lexp ldes backup dq dq' actual desired).
+    ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
+    ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes : loc) (dq dq' : dfrac) (expected desired : list val),
+      ghost_var γₑ (1/2) (bool_decide (actual = expected)) ∗
+      inv casN (cas_inv Φ γ γₑ γₗ γₜ lexp ldes dq dq' expected desired).
 
-  Definition registry_inv γ lactual actual (requests : list (gname * loc)) (used : gset loc) : iProp Σ :=
+  Definition registry_inv γ γₑ lactual actual (requests : list (gname * loc)) (used : gset loc) : iProp Σ :=
     [∗ list] '(γₗ, lexp) ∈ requests,
-      request_inv γ γₗ lactual lexp actual used.
+      request_inv γ γₑ γₗ lactual lexp actual used.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
-  Lemma linearize_writes γ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gset loc) :
-    lactual ≠ lactual' → actual ≠ actual' →
+  Lemma linearize_writes γ γₑ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
+    lactual ≠ lactual' → actual ≠ actual' → lactual' ∈ dom log →
+      ([∗ map] l ↦ value ∈ log, l ↦∗ value) -∗
       ghost_var γ (1/2) actual' -∗
-        registry_inv γ lactual actual requests used ={⊤ ∖ ↑cached_wfN}=∗ 
-          registry_inv γ lactual' actual' requests used ∗ ghost_var γ (1/2) actual'.
+        registry_inv γ γₑ lactual actual requests (dom log) ={⊤ ∖ ↑cached_wfN}=∗
+          ([∗ map] l ↦ value ∈ log, l ↦∗ value) ∗
+          ghost_var γ (1/2) actual' ∗
+          registry_inv γ γ lactual' actual' requests (dom log).
   Proof.
-    iIntros (Hsep Hne) "Hγ Hreqs".
+    iIntros (Hsep Hne Hlogged) "Hlog Hγ Hreqs".
     iInduction requests as [|[γₗ lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
-      iDestruct "Hreqs" as "[(Hlin & %Φ & %γₜ & %ldes & %backup & %dq & %dq' & %desired & #Hwinv) Hreqs']".
-      iMod ("IH" with "Hγ Hreqs'") as "[Hreqinv Hγ]".
-      iInv casN as "[(HΦ & >Hbackup & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %desired & #Hwinv) Hreqs']".
+      iMod ("IH" with "Hlog Hγ Hreqs'") as "(Hlog & Hγ & Hreqinv)".
+      iInv casN as "[(HΦ & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
         (* rewrite bool_decide_eq_false in Hneq. *)
-        iMod ("Hclose" with "[HΦ Hlin Hbackup]") as "_".
+        iMod ("Hclose" with "[HΦ Hlin]") as "_".
         { iLeft. iFrame. }
-        iFrame "∗ #".
-        rewrite /request_inv bool_decide_eq_false_2. Hneq.
+        iFrame "∗ # %".
+        rewrite /request_inv.
+        case_bool_decide as Halias.
+        * subst.
+        rewrite /request_inv bool_decide_eq_false_2.
+        
+        Hneq.
         by case_bool_decide; first lia.
       + iCombine "Hlin Hlin'" gives %[_ Hless].
         destruct (decide (ver' = S ver)) as [-> | Hne].
