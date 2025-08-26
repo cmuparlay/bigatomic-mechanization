@@ -284,7 +284,6 @@ Section cached_wf.
   Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
     ([∗ map] l ↦ value ∈ log, l ↦∗ value ∧ ⌜length value = n⌝).
 
-
   Definition request_inv γ γₑ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
     ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
@@ -296,17 +295,33 @@ Section cached_wf.
     [∗ list] '(γₗ, lexp) ∈ requests,
       request_inv γ γₑ γₗ lactual lexp actual used.
 
-  Definition
-
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
-  Lemma linearize_writes γ γₑ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
-    lactual ≠ lactual' → actual ≠ actual' → lactual' ↦∗ actual' →
-      ([∗ map] l ↦ value ∈ log, l ↦∗ value) -∗
-      ghost_var γ (1/2) actual' -∗
-        registry_inv γ γₑ lactual actual requests (dom log) ={⊤ ∖ ↑cached_wfN}=∗
-          ([∗ map] l ↦ value ∈ log, l ↦∗ value) ∗
-          ghost_var γ (1/2) actual' ∗
-          registry_inv γ γ lactual' actual' requests (dom log).
+  Lemma linearize_cas γ γₑ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
+    (* The current and previous logical state should be distinct if swapping backup pointer *)
+    actual ≠ actual'
+    (* Both the current and new logical state are comprised of the same number of bytes *)
+    length actual = length actual' → 
+    (* The current backup pointer has been logged *)
+    lactual ∈ dom log →
+    (* Points-to predicate of every previously logged backup *)
+    log_points_to (length actual) log
+    (* Physical state of backup *)
+    lactual' ↦∗ actual' -∗
+    (* The logical state has not yet been updated to the new state *)
+    ghost_var γ (1/2) actual -∗
+    (* The registry invariant is satisfied for the current logical state *)
+    registry_inv γ γₑ lactual actual requests (dom log)
+    (* We can take frame-preserving updated that linearize the successful CAS,
+       alongside all of the other failing CAS's *)
+    ={⊤ ∖ ↑cached_wfN}=∗
+      (* Points-to predicate of every previously logged backup *)
+      log_points_to (length actual) log
+      (* Return ownership of points-to predicate for new backup *)
+      lactual' ↦∗ actual ∗
+      (* Update new logical state to correspond to logical CAS *)
+      ghost_var γ (1/2) actual' ∗
+      (* Invariant corresponding to new logical state *)
+      registry_inv γ γ lactual' actual' requests (dom log).
   Proof.
     iIntros (Hsep Hne Hlogged) "Hlog Hγ Hreqs".
     iInduction requests as [|[γₗ lexp] reqs'] "IH".
