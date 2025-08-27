@@ -273,12 +273,12 @@ Section cached_wf.
   Definition AU_cas (Φ : val → iProp Σ) γ (expected desired : list val) (lexp ldes : loc) dq dq' : iProp Σ :=
        AU <{ ∃∃ actual : list val, value γ actual }>
             @ ⊤ ∖ ↑N, ∅
-          <{ if decide (actual = expected) then value γ desired else value γ actual,
+          <{ if bool_decide (actual = expected) then value γ desired else value γ actual,
              COMM lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #(bool_decide (actual = expected)) }>.
 
   Definition cas_inv (Φ : val → iProp Σ) (γ γₑ γₗ γₜ : gname) (lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
       ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
-    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
+    ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
   Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
@@ -354,7 +354,7 @@ Section cached_wf.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
       iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
       iMod ("IH" with "Hlog Hactual' Hγ Hreqs'") as "(Hlog & Hactual & Hγ & Hreqinv)".
-      iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hγₑ' & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
         iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']". 
         (* rewrite bool_decide_eq_false in Hneq. *)
@@ -378,7 +378,54 @@ Section cached_wf.
           replace (bool_decide (lactual' = lexp)) with false.
           { by iFrame. }
           { by rewrite bool_decide_eq_false_2. }
-      +
+      + iCombine "Hlin Hlin'" gives %[_ ->%bool_decide_eq_true].
+        iCombine "Hγₑ Hγₑ'" gives %[_ ->%bool_decide_eq_true].
+        iMod (ghost_var_update_halves false with "Hlin Hlin'") as "[Hlin Hlin']".
+        iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
+        iMod "AU" as (actual'') "[Hγ' [_ Hconsume]]".
+        iCombine "Hγ Hγ'" gives %[_ <-].
+        rewrite (bool_decide_eq_false_2 (actual' = expected)); last done.
+        destruct (decide (lactual' = lexp)) as [-> | Hdiff].
+        * apply elem_of_dom in Hfresh as [value Hvalue].
+          iPoseProof (log_points_to_impl with "Hlog") as "[Hactual' %Hlen']".
+          { done. }
+          iPoseProof (array_frac_add with "Hactual Hactual'") as "[Habsurd _]".
+          { by etransitivity. }
+          assert (length actual' > 0) as Hpos'.
+          { by rewrite -Hlen. }
+          destruct actual'.
+          { inv Hpos'. }
+          repeat rewrite array_cons.
+          iDestruct "Habsurd" as "[Habsurd _]".
+          by iPoseProof (pointsto_valid with "Habsurd") as "%H".
+        * iFrame "∗ # %".
+          rewrite (bool_decide_eq_false_2 (lactual' = lexp)); last done.
+          iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
+          iMod ("Hconsume" with "[$]") as "HΦ".
+          iFrame.
+          iMod ("Hclose" with "[-]") as "_".
+          { rewrite /cas_inv. iLeft. iFrame. }
+
+          { iFrame. }
+          iFrame. 
+          by iFrame.
+
+
+
+        iMod (ghost_var_update_halves vs' with "Hγ Hγ'") as "[Hγ Hγ']".
+        iFrame.
+        rewrite /request_inv.
+        rewrite -> bool_decide_eq_false_2 by lia.
+        iFrame "∗ #".
+        iMod ("Hconsume" with "Hγ") as "HΦ".
+        iMod ("Hclose" with "[-]") as "_".
+        { iLeft. iFrame. }
+        done.
+        
+        iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
+
+        (* rewrite bool_decide_eq_false in Hneq. *)
+        iMod ("Hclose" with "[HΦ Hγₑ Hlin]") as "_".
           
           rewrite {1}bool_decide_eq_false_2.
 
