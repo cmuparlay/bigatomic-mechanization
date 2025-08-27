@@ -501,13 +501,16 @@ Section cached_wf.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %requests & %index & >Hver & >Hbackup & >Hγ & Hvalidated & >Hregistry & Hreginv & >[%Hlenactual %Hlencache] & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >[%Hnodup %Hrange] & Hlock)" "Hcl".
-      (* iInv cached_wfN as "(%ver' & %log & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & >Hvalid & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl". simplify_eq. *)
-      destruct (Nat.even ver') eqn:Hparity.
-      + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".
+      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %requests & %index & >Hver & >Hbackup & >Hγ & Hvalidated & >Hregistry & Hreginv & >[-> %Hlencache] & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >[%Hnodup %Hrange] & Hlock)" "Hcl".
+      (* iInv cached_wfN as "(%ver' & %log & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & -> & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl". simplify_eq. *)
+      destruct valid.
+      + iMod "Hvalidated" as "[%Heven <-]".
+        apply Nat.even_spec in Heven as ->.
+
+        iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".
         wp_apply (wp_load_offset with "Hcache").
         { apply list_lookup_lookup_total_lt. lia. }
-        iMod (log_frag_alloc with "Hγₕ") as "[H● #H◯]".
+        iMod (log_frag_alloc with "●Hlog") as "[●Hlog #◯Hlog]".
         { by rewrite last_lookup in Hcons. }
         rewrite Hlog /=.
         iIntros "Hsrc".
