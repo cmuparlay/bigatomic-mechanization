@@ -279,7 +279,7 @@ Section cached_wf.
   Definition cas_inv (Φ : val → iProp Σ) (γ γₑ γₗ γₜ : gname) (lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) : iProp Σ :=
       ((lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired -∗ Φ #false) ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ghost_var γₗ (1/2) false) (* The failing write has already been linearized and its atomic update has been consumed *)
     ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
-    ∨ (token γₜ ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
+    ∨ (token γₜ ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
   Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
     ([∗ map] l ↦ value ∈ log, l ↦∗ value ∧ ⌜length value = n⌝).
@@ -354,7 +354,7 @@ Section cached_wf.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
       iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
       iMod ("IH" with "Hlog Hactual' Hγ Hreqs'") as "(Hlog & Hactual & Hγ & Hreqinv)".
-      iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hγₑ' & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hγₑ' & >Hlin') | (>Htok & [%b >Hγₑ'] & [%b' >Hlin'])]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
         iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']". 
         (* rewrite bool_decide_eq_false in Hneq. *)
@@ -404,69 +404,14 @@ Section cached_wf.
           iMod ("Hconsume" with "[$]") as "HΦ".
           iFrame.
           iMod ("Hclose" with "[-]") as "_".
-          { rewrite /cas_inv. iLeft. iFrame. }
-
-          { iFrame. }
-          iFrame. 
-          by iFrame.
-
-
-
-        iMod (ghost_var_update_halves vs' with "Hγ Hγ'") as "[Hγ Hγ']".
-        iFrame.
-        rewrite /request_inv.
-        rewrite -> bool_decide_eq_false_2 by lia.
-        iFrame "∗ #".
-        iMod ("Hconsume" with "Hγ") as "HΦ".
-        iMod ("Hclose" with "[-]") as "_".
-        { iLeft. iFrame. }
-        done.
-        
-        iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
-
-        (* rewrite bool_decide_eq_false in Hneq. *)
-        iMod ("Hclose" with "[HΦ Hγₑ Hlin]") as "_".
-          
-          rewrite {1}bool_decide_eq_false_2.
-
-
-          
-
-          subst.
-
-        rewrite /request_inv bool_decide_eq_false_2.
-        
-        Hneq.
-        by case_bool_decide; first lia.
-      + iCombine "Hlin Hlin'" gives %[_ Hless].
-        destruct (decide (ver' = S ver)) as [-> | Hne].
-        * iMod (ghost_var_update_halves false with "Hlin Hlin'") as "[Hlin Hlin']".
-          iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
-          iMod "AU" as (n') "[Hγ' [_ Hconsume]]".
-          iMod (ghost_var_update_halves vs' with "Hγ Hγ'") as "[Hγ Hγ']".
-          iFrame.
-          rewrite /request_inv.
-          rewrite -> bool_decide_eq_false_2 by lia.
-          iFrame "∗ #".
-          iMod ("Hconsume" with "Hγ") as "HΦ".
-          iMod ("Hclose" with "[-]") as "_".
           { iLeft. iFrame. }
           done.
-        * iMod ("Hclose" with "[Hcredit AU Hlin']") as "_".
-          { iRight. iLeft. iFrame. }
-          iFrame.
-          rewrite Hless.
-          rewrite bool_decide_eq_true in Hless.
-          rewrite /request_inv.
-          rewrite -> bool_decide_eq_true_2 by lia.
-          by iFrame "∗ #".
-      + iCombine "Hlin Hlin'" gives %[_ Hless].
-        iMod ("Hclose" with "[Htok Hlin]") as "_".
-        { do 2 iRight. rewrite Hless. iFrame. }
-        rewrite bool_decide_eq_false in Hless.
-        assert (ver ≥ ver') as Hge by lia.
-        iFrame "∗ #".
-        by case_bool_decide; first lia.
+      + iMod (ghost_var_update_halves (bool_decide (lactual' = lexp)) with "Hlin Hlin'") as "[Hlin Hlin']".
+        iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
+        iFrame "∗ # %".
+        iMod ("Hclose" with "[-]") as "_".
+        { do 2 iRight. iFrame. }
+        done.
   Qed.
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
