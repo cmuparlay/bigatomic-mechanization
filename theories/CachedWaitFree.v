@@ -284,6 +284,15 @@ Section cached_wf.
   Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
     ([∗ map] l ↦ value ∈ log, l ↦∗ value ∧ ⌜length value = n⌝).
 
+  Lemma log_points_to_impl log l value n :
+    log !! l = Some value →
+    log_points_to n log -∗
+    l ↦∗ value ∧ ⌜length value = n⌝.
+  Proof.
+    iIntros (Hbound) "Hlog".
+    by iApply (big_sepM_lookup with "Hlog").
+  Qed.
+
   Definition request_inv γ γₑ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
     ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
@@ -295,49 +304,87 @@ Section cached_wf.
     [∗ list] '(γₗ, lexp) ∈ requests,
       request_inv γ γₑ γₗ lactual lexp actual used.
 
+  Lemma array_frac_add l dq dq' vs vs' : length vs = length vs' → l ↦∗{dq} vs -∗ l ↦∗{dq'} vs' -∗ l ↦∗{dq ⋅ dq'} vs ∗ ⌜vs = vs'⌝.
+  Proof.
+    iIntros (Hlen) "Hl Hl'".
+    iInduction vs as [|v vs] "IH" forall (l vs' Hlen).
+    - symmetry in Hlen. rewrite length_zero_iff_nil in Hlen. simplify_list_eq. by iSplit.
+    - destruct vs' as [|v' vs']; simplify_list_eq.
+      repeat rewrite array_cons.
+      iDestruct "Hl" as "[Hl Hls]".
+      iDestruct "Hl'" as "[Hl' Hls']".
+      iCombine "Hl Hl'" as "Hl" gives %[_ <-].
+      iFrame.
+      iPoseProof ("IH" with "[//] [$] [$]") as "[Hl <-]".
+      by iFrame.
+  Qed.
+
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   Lemma linearize_cas γ γₑ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
+    length actual > 0 →
     (* The current and previous logical state should be distinct if swapping backup pointer *)
-    actual ≠ actual'
+    actual ≠ actual' →
     (* Both the current and new logical state are comprised of the same number of bytes *)
     length actual = length actual' → 
     (* The current backup pointer has been logged *)
     lactual ∈ dom log →
     (* Points-to predicate of every previously logged backup *)
-    log_points_to (length actual) log
+    log_points_to (length actual) log -∗
     (* Physical state of backup *)
     lactual' ↦∗ actual' -∗
     (* The logical state has not yet been updated to the new state *)
-    ghost_var γ (1/2) actual -∗
+    ghost_var γ (1/2) actual' -∗
     (* The registry invariant is satisfied for the current logical state *)
     registry_inv γ γₑ lactual actual requests (dom log)
     (* We can take frame-preserving updated that linearize the successful CAS,
        alongside all of the other failing CAS's *)
     ={⊤ ∖ ↑cached_wfN}=∗
       (* Points-to predicate of every previously logged backup *)
-      log_points_to (length actual) log
+      log_points_to (length actual) log ∗
       (* Return ownership of points-to predicate for new backup *)
-      lactual' ↦∗ actual ∗
+      lactual' ↦∗ actual' ∗
       (* Update new logical state to correspond to logical CAS *)
       ghost_var γ (1/2) actual' ∗
       (* Invariant corresponding to new logical state *)
-      registry_inv γ γ lactual' actual' requests (dom log).
+      registry_inv γ γₑ lactual' actual' requests (dom log).
   Proof.
-    iIntros (Hsep Hne Hlogged) "Hlog Hγ Hreqs".
+    iIntros (Hpos Hne Hlen Hlogged) "Hlog Hactual' Hγ Hreqs".
     iInduction requests as [|[γₗ lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
-      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %desired & %expected & Hexpected & #Hwinv) Hreqs']".
-      iMod ("IH" with "Hlog Hγ Hreqs'") as "(Hlog & Hγ & Hreqinv)".
-      iInv casN as "[(HΦ & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
+      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
+      iMod ("IH" with "Hlog Hactual' Hγ Hreqs'") as "(Hlog & Hactual & Hγ & Hreqinv)".
+      iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
+        iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']". 
         (* rewrite bool_decide_eq_false in Hneq. *)
-        iMod ("Hclose" with "[HΦ Hlin]") as "_".
+        iMod ("Hclose" with "[HΦ Hγₑ Hlin]") as "_".
         { iLeft. iFrame. }
-        iFrame "∗ # %".
-        rewrite /request_inv.
         destruct (decide (lactual' = lexp)) as [-> | Hneq].
-        * 
+        * apply elem_of_dom in Hfresh as [value Hvalue].
+          iPoseProof (log_points_to_impl with "Hlog") as "[Hactual' %Hlen']".
+          { done. }
+          iPoseProof (array_frac_add with "Hactual Hactual'") as "[Habsurd _]".
+          { by etransitivity. }
+          assert (length actual' > 0) as Hpos'.
+          { by rewrite -Hlen. }
+          destruct actual'.
+          { inv Hpos'. }
+          repeat rewrite array_cons.
+          iDestruct "Habsurd" as "[Habsurd _]".
+          by iPoseProof (pointsto_valid with "Habsurd") as "%H".
+        * iFrame "∗ # %".
+          rewrite /request_inv.
+          replace (bool_decide (lactual' = lexp)) with false.
+          { by iFrame. }
+          { by rewrite bool_decide_eq_false_2. }
+      +
+          
+          rewrite {1}bool_decide_eq_false_2.
+
+
+          
+
           subst.
 
         rewrite /request_inv bool_decide_eq_false_2.
