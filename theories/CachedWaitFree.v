@@ -176,7 +176,7 @@ Section cached_wf.
 
   Definition log_frag_own γₕ l (value : list val) := own γₕ (◯ {[l := to_agree value]}).
 
-  Definition index_frag_own γᵢ i (value : list val) := own γᵢ (◯ {[i := to_agree value]}).
+  Definition index_frag_own γᵢ (i : nat) (l : loc) := own γᵢ (◯ {[i := to_agree l]}).
 
   Lemma log_auth_update (l : loc) (value : list val) γₕ (log : gmap loc (list val)) :
     log !! l = None →
@@ -423,7 +423,7 @@ Section cached_wf.
       (* Half ownership of logical state *)
       ghost_var γ (1/2) actual ∗
       (* If the backup is validated, then the cache is unlocked *)
-      if valid then ⌜Nat.Even ver ∧ actual = cache⌝ else True ∗
+      (if valid then ⌜Nat.Even ver ∧ actual = cache⌝ else True) ∗
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ γₑ (l +ₗ 1) actual requests (dom log) ∗
@@ -442,7 +442,7 @@ Section cached_wf.
       (* Moreover, every index should be less than the length of the log (to ensure every version
          corresponds to a valid entry) *)
       (* Additionally, it is sorted--the mapping should be monotonic *)
-      ⌜NoDup index ∧ Forall (λ loc', loc' ∈ dom log) index⌝ ∗
+      ⌜NoDup index ∧ Forall (λ l, l ∈ dom log) index⌝ ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
@@ -452,10 +452,10 @@ Section cached_wf.
         (* If locked, have only read-only access to ensure one updater *)
         index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
 
-  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n i : nat) vdst ver :
+  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ γₑ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
@@ -475,7 +475,10 @@ Section cached_wf.
                   (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
                     ∃ l vs,
-                      log_frag_own γₕ (Nat.div2 ver') (l, vs) ∗
+                      (* Version [i] is associated with backup [l] *)
+                      index_frag_own γᵢ (Nat.div2 i) l ∗
+                      (* Location [l] is associated with value [vs] *)
+                      log_frag_own γₕ l vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
                       ⌜vs !! (i + j)%nat = Some v⌝)) }}}.
   Proof.
@@ -497,11 +500,12 @@ Section cached_wf.
       { assert (@List.length val [] > 0) as Hlen by lia. inv Hlen.  }
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
-      wp_bind (! _)%E.
-      iInv cached_wfN as "(%ver' & %log & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & >Hvalid & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl". simplify_eq.
+      wp_bind (! _)%E. 
+      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %requests & %index & >Hver & >Hbackup & >Hγ & Hvalidated & >Hregistry & Hreginv & >[%Hlenactual %Hlencache] & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >[%Hnodup %Hrange] & Hlock)" "Hcl".
+      (* iInv cached_wfN as "(%ver' & %log & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & >Hvalid & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl". simplify_eq. *)
       destruct (Nat.even ver') eqn:Hparity.
-      + iDestruct "Hlock" as ">(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
-        wp_apply (wp_load_offset with "Hsrc").
+      + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".
+        wp_apply (wp_load_offset with "Hcache").
         { apply list_lookup_lookup_total_lt. lia. }
         iMod (log_frag_alloc with "Hγₕ") as "[H● #H◯]".
         { by rewrite last_lookup in Hcons. }
