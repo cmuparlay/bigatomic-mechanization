@@ -414,8 +414,8 @@ Section cached_wf.
         done.
   Qed.
 
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (log : list (loc * list val)%type) (actual cache : list val) (valid : bool) (backup : loc) requests (index : list nat),
+  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ γₑ : gname) (l : loc) (len : nat) : iProp Σ :=
+    ∃ (ver : nat) (log : gmap loc (list val)) (actual cache : list val) (valid : bool) (backup : loc) requests (index : list loc),
       (* Physical state of version *)
       l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
@@ -426,14 +426,14 @@ Section cached_wf.
       if valid then ⌜Nat.Even ver ∧ actual = cache⌝ else True ∗
       registry γᵣ requests ∗
       (* State of request registry *)
-      registry_inv γ (l +ₗ 1) requests ∗
+      registry_inv γ γₑ (l +ₗ 1) actual requests (dom log) ∗
       (* Big atomic is of fixed size *)
       ⌜length actual = len ∧ length cache = len⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions *)
       (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
-      [∗ list] '(backup', value) ∈ log, backup' ↦∗ value ∗
+      log_points_to (length actual) log ∗
       (* The last item in the log corresponds to the currently installed backup pointer *)
-      ⌜last log = Some (backup, actual)⌝ ∗
+      ⌜log !! backup = Some actual⌝ ∗
       (* Store full authoritative ownership of the log in the invariant *)
       log_auth_own γₕ 1 log ∗
       (* The is a mapping in the index for every version *)
@@ -442,7 +442,7 @@ Section cached_wf.
       (* Moreover, every index should be less than the length of the log (to ensure every version
          corresponds to a valid entry) *)
       (* Additionally, it is sorted--the mapping should be monotonic *)
-      ⌜NoDup index ∧ Forall (λ i, i < length log) index ∧ StronglySorted Nat.le index⌝ ∗
+      ⌜NoDup index ∧ Forall (λ loc', loc' ∈ dom log) index⌝ ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
