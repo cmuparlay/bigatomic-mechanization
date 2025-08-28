@@ -1,7 +1,7 @@
 From iris.program_logic Require Import atomic.
 From iris.algebra Require Import auth gmap gset list lib.mono_nat.
-From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
 From iris.heap_lang Require Import lang proofmode notation lib.array.
+From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
 Import derived_laws.bi.
 Require Import  Coq.ZArith.Zquot.
 Require Import stdpp.gmap.
@@ -449,15 +449,18 @@ Section cached_wf.
   Qed.
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ γₑ : gname) (l : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (log : gmap loc (list val)) (actual cache : list val) (valid : bool) (backup : loc) requests (index : list loc),
+    ∃ (ver : nat) (log : gmap loc (list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) requests (index : list loc),
       (* Physical state of version *)
       l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
       (l +ₗ 1) ↦ (#valid, #backup)%V ∗
       (* Half ownership of logical state *)
       ghost_var γ (1/2) actual ∗
-      (* If the backup is validated, then the cache is unlocked *)
-      ⌜if valid then Nat.Even ver ∧ actual = cache ∧ last index = Some backup else True⌝ ∗
+      (* The most recent version is associated with some other backup pointer *)
+      ⌜last index = Some backup'⌝ ∗
+      (* If the backup is validated, then the cache is unlocked, the logical state is equal to the cache,
+         and the backup pointer corresponding to the most recent version is up to date *)
+      ⌜if valid then Nat.Even ver ∧ actual = cache ∧ backup = backup' else True⌝ ∗
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ γₑ (l +ₗ 1) actual requests (dom log) ∗
@@ -482,7 +485,7 @@ Section cached_wf.
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ (l +ₗ 2) ↦∗ cache
+        index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ ⌜log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗ cache
       else 
         (* If locked, have only read-only access to ensure one updater *)
         index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
@@ -511,7 +514,7 @@ Section cached_wf.
                   (* Then there exists some list of values associated with that version *)
                     ∃ l vs,
                       (* Version [i] is associated with backup [l] *)
-                      index_frag_own γᵢ (Nat.div2 i) l ∗
+                      index_frag_own γᵢ (Nat.div2 ver') l ∗
                       (* Location [l] is associated with value [vs] *)
                       log_frag_own γₕ l vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
@@ -541,10 +544,12 @@ Section cached_wf.
       + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".    
         wp_apply (wp_load_offset with "Hcache").
         { apply list_lookup_lookup_total_lt. lia. }
-        assert (Nat.div2 ver' < length index) as [l' Hl']%lookup_lt_is_Some by lia.
+        assert (Nat.div2 ver' < length index) as [l Hl]%lookup_lt_is_Some by lia.
         iMod (index_frag_alloc with "Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
         { done. }
-        iMod (log_frag_alloc with "●Hlog") as "[●Hlog #◯Hlog]".
+        apply Forall_lookup_1 with (i := Nat.div2 ver') (x := l) in Hrange as Hldom; last done.
+        apply elem_of_dom in Hldom as [value Hvalue].
+        iMod (log_frag_alloc l value with "●Hlog") as "[●Hlog #◯Hlog]".
         { done. }
         iIntros "Hsrc".
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
@@ -575,6 +580,8 @@ Section cached_wf.
         { simpl. iSplitR "Hcons".
           - iSplitR; first done. 
             iIntros "%Heven'".
+            iExists l, _.
+            iFrame "∗ # %".
             iExists
             iExists _, _. iFrame.
             iFrame.
