@@ -625,7 +625,7 @@ Section cached_wf.
             rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
   Qed.
 
-  Lemma log_auth_auth_agree γₕ p q log log' :
+  Lemma log_auth_auth_agree γₕ p q (log log' : gmap loc (list val)) :
     log_auth_own γₕ p log -∗
       log_auth_own γₕ q log'  -∗
         ⌜log = log'⌝.
@@ -633,12 +633,11 @@ Section cached_wf.
     iIntros "H H'".
     iCombine "H H'" gives %Hagree%auth_auth_dfrac_op_inv.
     iPureIntro.
-    apply list_eq.
+    apply map_eq.
     intros i.
     apply leibniz_equiv.
     apply (inj (fmap to_agree)).
-    repeat rewrite -list_lookup_fmap.
-    by do 2 rewrite -lookup_map_seq_0.
+    by repeat rewrite -lookup_fmap.
   Qed.
 
   Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ (dst src : loc) (n : nat) vdst ver :
