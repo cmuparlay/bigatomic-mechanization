@@ -28,30 +28,6 @@ Definition new_big_atomic (n : nat) : val :=
     array_copy_to ("dst" +ₗ #2) "src" #n;;
     "dst".
 
-(* Definition write (n : nat) : val :=
-  λ: "l" "src",
-    let: "ver" := !"l" in
-    if: "ver" `rem` #2 = #1 then
-      (* If locked, spin until unlocked and return *)
-      loop_while "l" "ver"
-    else
-      let: "res" := CmpXchg "l" "ver" (#1 + "ver") in
-      if: Snd "res" then
-        (* Lock was successful *)
-        (* Perform update *)
-        array_copy_to ("l" +ₗ #1) "src" #n;;
-        (* Unlock *)
-        "l" <- #2 + "ver"
-      else
-        (* Failed to take lock *)
-        let: "ver'" := Fst "res" in
-        if: "ver'" = #1 + "ver" then
-          (* If another writer is updating this version, wait until it is done *)
-          loop_while "l" "ver'"
-        else
-          (* Otherwise, we have already been linearized by someone else *)
-          #(). *)
-
 Definition read' (n : nat) : val :=
   λ: "l",
     let: "ver" := !"l" in
@@ -635,19 +611,18 @@ Section cached_wf.
     iPureIntro.
     apply map_eq.
     intros i.
-    apply leibniz_equiv.
-    apply (inj (fmap to_agree)).
-    by repeat rewrite -lookup_fmap.
+    apply leibniz_equiv, (inj (fmap to_agree)).
+    repeat rewrite -lookup_fmap //.
   Qed.
 
-  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ (dst src : loc) (n : nat) vdst ver :
+  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ γᵢ γₑ (dst src : loc) (n : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     length vdst = n →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ dst ↦∗ vdst }}}
-            array_copy_to #dst #(src +ₗ 1) #n
+            array_copy_to #dst #(src +ₗ 2) #n
           {{{ vers vdst', RET #(); 
               (* the destination array contains some values [vdst'] *)
               dst ↦∗ vdst' ∗
@@ -662,17 +637,20 @@ Section cached_wf.
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
                   (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
-                    ∃ vs,
-                      own γₕ (◯ {[Nat.div2 ver' := to_agree vs]}) ∗
+                    ∃ l vs,
+                      (* Version [i] is associated with backup [l] *)
+                      index_frag_own γᵢ (Nat.div2 ver') l ∗
+                      (* Location [l] is associated with value [vs] *)
+                      log_frag_own γₕ l vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
-                      ⌜vs !! i = Some v⌝)) }}}.
+                      ⌜vs !! i = Some v⌝ ))}}}.
   Proof.
      iIntros "%Hvdst #Hinv #Hlb !> %Φ Hdst HΦ".
-     rewrite -(Loc.add_0 (src +ₗ 1)).
+     rewrite -(Loc.add_0 (src +ₗ 2)).
      rewrite -(Loc.add_0 dst).
      replace (Z.of_nat n) with (n - 0)%Z by lia.
      change 0%Z with (Z.of_nat O).
-     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
+     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
      iIntros "!> %vers %vdst' /=".
      rewrite Nat.sub_0_r //.
   Qed.
