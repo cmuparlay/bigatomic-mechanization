@@ -333,8 +333,9 @@ Section seqlock.
       + iDestruct "Hlock" as ">(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons)".
         wp_apply (wp_load_offset with "Hsrc").
         { apply list_lookup_lookup_total_lt. lia. }
-        iMod (history_frag_alloc with "Hγₕ") as "[H● #H◯]".
-        { by rewrite last_lookup in Hcons. }
+
+        iMod (history_frag_alloc (Nat.div2 ver') with "Hγₕ") as "[H● #H◯]".
+        { apply lookup_lt_is_Some. rewrite list_lookup_lookup_total_lt. }
         rewrite Hhistory /=.
         iIntros "Hsrc".
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".

@@ -178,6 +178,40 @@ Section cached_wf.
 
   Definition index_frag_own γᵢ (i : nat) (l : loc) := own γᵢ (◯ {[i := to_agree l]}).
 
+  Lemma index_auth_update (l : loc) γ (index : list loc) :
+    index_auth_own γ 1 index ==∗
+      index_auth_own γ 1 (index ++ [l]) ∗ index_frag_own γ (length index) l.
+  Proof.
+    iIntros "H●".
+    rewrite /index_auth_own /index_frag_own.
+    iMod (own_update with "H●") as "[H● H◯]".
+    { eapply auth_update_alloc.
+      apply alloc_singleton_local_update 
+        with 
+          (i := length index)
+          (x := to_agree l).
+      { rewrite lookup_map_seq_None length_fmap. by right. }
+      constructor. }
+    replace (length index) with (O + length (to_agree <$> index)) at 1 
+          by (now rewrite length_fmap).
+    rewrite -map_seq_snoc fmap_snoc. by iFrame.
+  Qed.
+
+  Lemma index_frag_alloc i l γ index q :
+    index !! i = Some l →
+      index_auth_own γ q index ==∗
+        index_auth_own γ q index ∗ index_frag_own γ i l.
+  Proof.
+    iIntros (Hlookup) "Hauth".
+    iMod (own_update with "Hauth") as "[H● H◯]".
+    { apply auth_update_dfrac_alloc with (b := {[i := to_agree l]}).
+      { apply _. }
+      apply singleton_included_l with (i := i).
+      exists (to_agree l). split; last done.
+      rewrite lookup_map_seq_0 list_lookup_fmap Hlookup //. }
+    by iFrame.
+  Qed.
+
   Lemma log_auth_update (l : loc) (value : list val) γₕ (log : gmap loc (list val)) :
     log !! l = None →
     log_auth_own γₕ 1 log ==∗
@@ -423,12 +457,13 @@ Section cached_wf.
       (* Half ownership of logical state *)
       ghost_var γ (1/2) actual ∗
       (* If the backup is validated, then the cache is unlocked *)
-      (if valid then ⌜Nat.Even ver ∧ actual = cache⌝ else True) ∗
+      ⌜if valid then Nat.Even ver ∧ actual = cache ∧ last index = Some backup else True⌝ ∗
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ γₑ (l +ₗ 1) actual requests (dom log) ∗
       (* Big atomic is of fixed size *)
-      ⌜length actual = len ∧ length cache = len⌝ ∗
+      ⌜length actual = len⌝ ∗ 
+      ⌜length cache = len⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions *)
       (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
       log_points_to (length actual) log ∗
@@ -439,10 +474,10 @@ Section cached_wf.
       (* The is a mapping in the index for every version *)
       ⌜length index = S (Nat.div2 ver)⌝ ∗
       (* Because the mapping from versions to log entries is injective, the index should not contain duplicates *)
+      ⌜NoDup index⌝ ∗
       (* Moreover, every index should be less than the length of the log (to ensure every version
          corresponds to a valid entry) *)
-      (* Additionally, it is sorted--the mapping should be monotonic *)
-      ⌜NoDup index ∧ Forall (λ l, l ∈ dom log) index⌝ ∗
+      ⌜Forall (λ l, l ∈ dom log) index⌝ ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
@@ -501,23 +536,21 @@ Section cached_wf.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %requests & %index & >Hver & >Hbackup & >Hγ & Hvalidated & >Hregistry & Hreginv & >[-> %Hlencache] & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >[%Hnodup %Hrange] & Hlock)" "Hcl".
-      (* iInv cached_wfN as "(%ver' & %log & %vs & %valid & %backup & %registry & >Hvalidated & >Hbackup & -> & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl". simplify_eq. *)
-      destruct valid.
-      + iMod "Hvalidated" as "[%Heven <-]".
-        apply Nat.even_spec in Heven as ->.
-
-        iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".
+      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %requests & %index & >Hver & >Hbackup & >Hγ & Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      destruct (Nat.even ver') eqn:Heven.
+      + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".    
         wp_apply (wp_load_offset with "Hcache").
         { apply list_lookup_lookup_total_lt. lia. }
+        assert (Nat.div2 ver' < length index) as [l' Hl']%lookup_lt_is_Some by lia.
+        iMod (index_frag_alloc with "Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
+        { done. }
         iMod (log_frag_alloc with "●Hlog") as "[●Hlog #◯Hlog]".
-        { by rewrite last_lookup in Hcons. }
-        rewrite Hlog /=.
+        { done. }
         iIntros "Hsrc".
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
         iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
         iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iExists ver', log, vs. rewrite Hparity. iFrame "∗ %".  }
+        { iFrame "∗ # %". rewrite Heven. iFrame. }
         iModIntro.
         wp_store.
         wp_pures.
@@ -541,7 +574,10 @@ Section cached_wf.
           eapply Forall_impl; eauto. lia. }
         { simpl. iSplitR "Hcons".
           - iSplitR; first done. 
-            iIntros "%Heven".
+            iIntros "%Heven'".
+            iExists
+            iExists _, _. iFrame.
+            iFrame.
             iExists vs. iFrame "#".
             rewrite Nat.add_0_r.
             by rewrite <- list_lookup_lookup_total_lt by lia.
