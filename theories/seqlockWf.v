@@ -364,7 +364,7 @@ Section seqlock.
           eapply Forall_impl; eauto. lia. }
         { simpl. iSplitR "Hcons".
           - iSplitR; first done. 
-            iIntros "%Heven".
+            iIntros "%Heven". 
             iExists vs. iFrame "#".
             rewrite Nat.add_0_r.
             by rewrite <- list_lookup_lookup_total_lt by lia.

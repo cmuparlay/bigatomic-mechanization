@@ -539,23 +539,22 @@ Section cached_wf.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %requests & %index & >Hver & >Hbackup & >Hγ & Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
       destruct (Nat.even ver') eqn:Heven.
-      + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & Hcache)".    
+      + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & %Hbackup & Hcache)".    
         wp_apply (wp_load_offset with "Hcache").
         { apply list_lookup_lookup_total_lt. lia. }
-        assert (Nat.div2 ver' < length index) as [l Hl]%lookup_lt_is_Some by lia.
         iMod (index_frag_alloc with "Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
-        { done. }
-        apply Forall_lookup_1 with (i := Nat.div2 ver') (x := l) in Hrange as Hldom; last done.
-        apply elem_of_dom in Hldom as [value Hvalue].
-        iMod (log_frag_alloc l value with "●Hlog") as "[●Hlog #◯Hlog]".
+        { by rewrite last_lookup Hlenᵢ /= in Hindex. }
+        (* apply Forall_lookup_1 with (i := Nat.div2 ver') (x := l) in Hrange as Hldom; last done. *)
+        (* apply elem_of_dom in Hldom as [value Hvalue]. *)
+        iMod (log_frag_alloc backup' cache with "●Hlog") as "[●Hlog #◯Hlog]".
         { done. }
         iIntros "Hsrc".
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
         iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
         iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iFrame "∗ # %". rewrite Heven. iFrame. }
+        { iFrame "∗ # %". rewrite Heven. iFrame "∗ %". }
         iModIntro.
         wp_store.
         wp_pures.
@@ -580,12 +579,8 @@ Section cached_wf.
         { simpl. iSplitR "Hcons".
           - iSplitR; first done. 
             iIntros "%Heven'".
-            iExists l, _.
+            iExists backup', _.
             iFrame "∗ # %".
-            iExists
-            iExists _, _. iFrame.
-            iFrame.
-            iExists vs. iFrame "#".
             rewrite Nat.add_0_r.
             by rewrite <- list_lookup_lookup_total_lt by lia.
           - rewrite big_sepL2_mono; first done.
@@ -598,9 +593,8 @@ Section cached_wf.
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
         iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
         iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iExists _, _, _. iFrame. 
-          repeat iSplit; try done.
-          rewrite Hparity. by iFrame. }
+        { iExists _, _, _. iFrame "∗ # %".
+          rewrite Heven. iFrame "∗ # %". }
         iModIntro.
         wp_store.
         wp_pures.
@@ -625,7 +619,7 @@ Section cached_wf.
         { simpl. iSplitR "Hcons".
           - rewrite -Nat.even_spec.
             iSplitR; first done.
-            iIntros "%Heven". congruence.
+            iIntros "%Heven'". congruence.
           - rewrite big_sepL2_mono; first done.
             iIntros (k ver''' v') "_ _ H".
             rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
