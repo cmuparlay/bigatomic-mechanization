@@ -424,6 +424,8 @@ Section cached_wf.
         done.
   Qed.
 
+  Search (bool → Prop).
+
   Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ γₑ : gname) (l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (log : gmap loc (list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) requests (index : list loc),
       (* Physical state of version *)
@@ -464,7 +466,7 @@ Section cached_wf.
         index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ ⌜log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗ cache
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache.
+        index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache ∗ ⌜valid = false⌝.
 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ γₑ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
@@ -517,7 +519,7 @@ Section cached_wf.
       wp_bind (! _)%E. 
       iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
       destruct (Nat.even ver') eqn:Heven.
-      + iDestruct "Hlock" as ">(Hγᵢ & Hγᵥ & %Hbackup & Hcache)".    
+      + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache)".
         wp_apply (wp_load_offset with "Hcache").
         { apply list_lookup_lookup_total_lt. lia. }
         iMod (index_frag_alloc with "Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
@@ -562,7 +564,7 @@ Section cached_wf.
           - rewrite big_sepL2_mono; first done.
             iIntros (k ver''' v') "_ _ H".
             rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
-      + iDestruct "Hlock" as ">(Hγₕ & Hγᵥ & Hsrc)".
+      + iDestruct "Hlock" as ">(Hγₕ & Hγᵥ & Hsrc & Hinvalid)".
         wp_apply (wp_load_offset with "Hsrc").
         { apply list_lookup_lookup_total_lt. lia. }
         iIntros "Hsrc".
@@ -655,13 +657,13 @@ Section cached_wf.
      rewrite Nat.sub_0_r //.
   Qed.
 
-  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ (src : loc) (n : nat) ver :
+  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ γᵢ γₑ (src : loc) (n : nat) ver :
     n > 0 →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ True }}}
-            array_clone #(src +ₗ 1) #n
+            array_clone #(src +ₗ 2) #n
           {{{ vers vdst (dst : loc), RET #dst; 
               (* the destination array contains some values [vdst'] *)
               dst ↦∗ vdst ∗
@@ -675,9 +677,12 @@ Section cached_wf.
                   mono_nat_lb_own γᵥ ver' ∗
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
                   (⌜Nat.Even ver'⌝ →
-                  (* Then there exists some list of values associated with that version *)
-                    ∃ vs,
-                      own γₕ (◯ {[Nat.div2 ver' := to_agree vs]}) ∗
+                    (* Then there exists some list of values associated with that version *)
+                    ∃ l vs,
+                      (* Version [i] is associated with backup [l] *)
+                      index_frag_own γᵢ (Nat.div2 ver') l ∗
+                      (* Location [l] is associated with value [vs] *)
+                      log_frag_own γₕ l vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
                       ⌜vs !! i = Some v⌝)) }}}.
   Proof.
@@ -710,12 +715,12 @@ Section cached_wf.
     - intros [k H]. exists (Z.to_nat k). lia.
   Qed.
 
-  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ dst src (vs vs' : list val) i n dq :
+  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ γᵢ γₑ dst src (vs vs' : list val) i n dq :
     i ≤ n → length vs = n - i → length vs = length vs' →
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ dst n) -∗
-          {{{ (dst +ₗ 1 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
-            array_copy_to #(dst +ₗ 1 +ₗ i) #(src +ₗ i) #(n - i)%nat
-          {{{ RET #(); (dst +ₗ 1 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ dst n) -∗
+          {{{ (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
+            array_copy_to #(dst +ₗ 2 +ₗ i) #(src +ₗ i) #(n - i)%nat
+          {{{ RET #(); (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
   Proof.
     iIntros (Hle Hlen Hmatch) "#Hinv %Φ !> [Hdst Hsrc] HΦ".
     iLöb as "IH" forall (i vs vs' Hlen Hle Hmatch).
@@ -743,29 +748,32 @@ Section cached_wf.
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv cached_wfN as "(%ver & %log & %vs'' & %registry & Hreg & Hreginv & >Hversion & >%Hlen' & >%Hlog & Hlock)" "Hcl".
-      assert (i < length vs'') as [v'' Hv'']%lookup_lt_is_Some by lia.
+      iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      assert (i < length cache) as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
-      + iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst'' & %Hcons') /=".
-        iPoseProof (update_array _ _ _ i v'' with "Hdst''") as "[Hdst'' _]".
+      + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache) /=".
+        iPoseProof (update_array _ _ _ i v'' with "Hcache") as "[Hcache _]".
         { done. }
-        by iCombine "Hdst Hdst''" gives %[Hfrac%dfrac_valid_own_r <-].
-      + iMod "Hlock" as "(Hγₕ & Hγᵥ & Hdst'')".
-        iPoseProof (update_array _ _ _ i v'' with "Hdst''") as "[Hdst'' Hacc]".
+        by iCombine "Hdst Hcache" gives %[Hfrac%dfrac_valid_own_r <-].
+      + iMod "Hlock" as "(Hγᵢ & Hγᵥ & Hcache & ->)".
+        iPoseProof (update_array _ _ _ i v'' with "Hcache") as "[Hcache Hacc]".
         { done. }
-        iCombine "Hdst Hdst''" as "Hdst".
+        iCombine "Hdst Hcache" as "Hcache".
         rewrite dfrac_op_own Qp.half_half.
         wp_store.
-        iDestruct "Hdst" as "[Hdst Hdst'']".
-        iPoseProof ("Hacc" with "Hdst''") as "Hdst''".
-        iMod ("Hcl" with "[$Hreg $Hreginv $Hversion Hγₕ Hγᵥ Hdst'']") as "_".
-        { iExists log, (<[i:=v']> vs''). rewrite Heven. iFrame "∗ %".
-          iPureIntro. by rewrite length_insert. }
+        iDestruct "Hcache" as "[Hcache Hcache']".
+        iPoseProof ("Hacc" with "Hcache") as "Hcache".
+        (* $Hregistry $Hreginv $Hver Hγᵢ Hγᵥ Hcache *)
+        iMod ("Hcl" with "[-Hcache' Hdst' Hsrc Hsrc' HΦ]") as "_".
+        { iExists _, _, _, (<[i:=v']> cache). iFrame "∗ # %".
+          rewrite Heven. iFrame.
+          iNext. iSplit; last done.
+          by rewrite length_insert. }
         iModIntro.
         wp_pures.
         rewrite -> Nat2Z.inj_sub by done.
         rewrite -Z.sub_add_distr.
-        rewrite Loc.add_assoc /=.
+        rewrite (Loc.add_assoc (dst +ₗ 2)) /=.
         rewrite (Loc.add_assoc src) /=.
         change 1%Z with (Z.of_nat 1).
         rewrite -Nat2Z.inj_add Nat.add_comm /=.
@@ -776,7 +784,7 @@ Section cached_wf.
         * iPureIntro. lia.
         * iIntros "[Hdst' Hsrc']".
           iApply "HΦ". iFrame.
-          rewrite (Loc.add_assoc (dst +ₗ 1)) /=.
+          rewrite (Loc.add_assoc (dst +ₗ 2)) /=.
           change 1%Z with (Z.of_nat 1).
           by rewrite -Nat2Z.inj_add Nat.add_comm /=.
   Qed.
