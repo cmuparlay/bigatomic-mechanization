@@ -789,19 +789,19 @@ Section cached_wf.
           by rewrite -Nat2Z.inj_add Nat.add_comm /=.
   Qed.
 
-  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ dst src (vs vs' : list val) n dq :
+  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ γᵢ γₑ dst src (vs vs' : list val) n dq :
     length vs = n → length vs = length vs' →
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ dst n) -∗
-          {{{ (dst +ₗ 1) ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
-            array_copy_to #(dst +ₗ 1) #src #n
-          {{{ RET #(); (dst +ₗ 1) ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ dst n) -∗
+          {{{ (dst +ₗ 2) ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
+            array_copy_to #(dst +ₗ 2) #src #n
+          {{{ RET #(); (dst +ₗ 2) ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
   Proof.
     iIntros (Hlen Hlen') "#Hinv %Φ !> [Hdst Hsrc] HΦ".
-    rewrite -(Loc.add_0 (dst +ₗ 1)).
+    rewrite -(Loc.add_0 (dst +ₗ 2)).
     rewrite -(Loc.add_0 src).
     change 0%Z with (Z.of_nat 0).
     rewrite -{2}(Nat.sub_0_r n).
-    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
+    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
     - lia.
     - lia.
     - done.
