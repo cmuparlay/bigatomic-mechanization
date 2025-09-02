@@ -33,7 +33,7 @@ Definition read' (n : nat) : val :=
     let: "ver" := !"l" in
     let: "data" := array_clone ("l" +ₗ #2) #n in
     let: "backup" := !("l" +ₗ #1) in
-    if: (Fst "backup" && !"l" = "ver") then
+    if: (Fst "backup") && (!"l" = "ver") then
       ("data", "backup", "ver")
     else
       (array_clone (Snd "backup") #n, "backup", "ver").
@@ -302,7 +302,6 @@ Section cached_wf.
     iIntros (Hbound) "Hlog".
     by iApply (big_sepM_lookup with "Hlog").
   Qed.
-
 
   (* log_points_to (length vs) {[backup := to_agree vs]} ⊣⊢  *)
 
@@ -889,56 +888,6 @@ Section cached_wf.
     iExists _, _, _, _, _. by iFrame "#".
   Qed.
 
-  Lemma wp_loop_while γ γᵥ γₕ γᵣ (l : loc) (n ver : nat) :
-    inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ l n) -∗
-      {{{ mono_nat_lb_own γᵥ ver }}}
-        loop_while #l #ver
-      {{{ ver', RET #(); ⌜ver < ver'⌝ ∗ mono_nat_lb_own γᵥ ver' }}}.
-  Proof.
-    iIntros "#Hinv %Φ !# #Hlb HΦ".
-    iLöb as "IH".
-    wp_rec.
-    wp_pures.
-    wp_bind (! _)%E.
-    iInv cached_wfN as "(%ver' & %log & %vs & %registry & Hreg & Hreginv & >Hver' & >%Hlen & >%Hlog & Hlock)" "Hcl".
-    wp_load.
-    destruct (Nat.even ver') eqn:Heven.
-    - iDestruct "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hl & %Hcons)".
-      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
-      iClear "Hlb".
-      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod ("Hcl" with "[-HΦ]") as "_".
-      { iFrame. rewrite Heven. by iFrame. }
-      iModIntro.
-      wp_pures.
-      destruct (decide (ver = ver')) as [-> | Hne].
-      + rewrite -> bool_decide_eq_true_2 by congruence.
-        wp_pures.
-        iApply ("IH" with "[$]").
-      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
-        wp_pures.
-        iModIntro.
-        iApply ("HΦ" with "[$Hlb]").
-        iPureIntro. lia.
-    - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hl)".
-      iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hle].
-      iClear "Hlb".
-      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod ("Hcl" with "[-HΦ]") as "_".
-      { iFrame. rewrite Heven. by iFrame. }
-      iModIntro.
-      wp_pures.
-      destruct (decide (ver = ver')) as [-> | Hne].
-      + rewrite -> bool_decide_eq_true_2 by congruence.
-        wp_pures.
-        iApply ("IH" with "[$]").
-      + rewrite -> bool_decide_eq_false_2 by (intros Heq; simplify_eq).
-        wp_pures.
-        iModIntro.
-        iApply ("HΦ" with "[$Hlb]").
-        iPureIntro. lia.
-  Qed.
-
   Lemma div2_mono x y : x ≤ y → Nat.div2 x ≤ Nat.div2 y.
   Proof.
     intros Hle. induction Hle as [| y Hle IH].
@@ -996,47 +945,127 @@ Section cached_wf.
       by rewrite -not_true_iff_false Z.odd_spec -Odd_inj in H.
   Qed.
 
-  Lemma already_linearized Φ γ γₗ γᵥ γᵣ γₕ γₜ l n src dq vs' ver i :
-    inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ l n) -∗
-      inv casN (write_inv Φ γ γₗ γₜ src dq vs') -∗
-        registered γᵣ i γₗ (S (Nat.div2 ver)) -∗
-          mono_nat_lb_own γᵥ (S (S ver)) -∗ 
-            token γₜ -∗ 
-              £ 2 -∗ 
-                src ↦∗{dq} vs' 
-                  ={⊤}=∗ Φ #().
+  Lemma read'_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (n : nat) :
+    n > 0 →
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
+        <<{ ∀∀ vs, value γ vs  }>> 
+          read' n #l @ ↑N
+        <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat), value γ vs | 
+            RET (#copy, (#valid, #backup), #ver)%V; 
+            copy ↦∗ vs ∗ log_frag_own γₕ backup vs ∗ if valid then index_frag_own γᵢ ver backup else True }>>.
   Proof.
-    iIntros "#Hinv #Hwinv #◯Hreg #Hlb Hγₜ [Hcredit Hcredit'] Hsrc".
-    iInv cached_wfN as "(%ver' & %log & %vs'' & %registry & >Hreg & Hreginv & >Hver & >%Hlen & >%Hlog & Hlock)" "Hcl".
-    iMod (lc_fupd_elim_later with "Hcredit Hreginv") as "Hreginv".
-    iPoseProof (registry_agree with "Hreg ◯Hreg") as "%Hagree".
-    (* Consider which state our helping request is in*)
-    iPoseProof (big_sepL_lookup_acc _ _ _ _ Hagree with "Hreginv") as "[[Hlin _] Hrest]".
-    iInv casN as "[[HΦ >Hlin'] | [(>Hcredit & AU & >Hlin') | (>Htok & >Hlin')]]" "Hclose".
-    { iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
-      { do 2 iRight. iFrame. }
-      iMod ("Hcl" with "[-HΦ Hsrc Hcredit']") as "_".
-      { iFrame. iSplit; last done. iApply "Hrest". iFrame "∗ #". }
-      iMod (lc_fupd_elim_later with "Hcredit' HΦ") as "HΦ".
+    iIntros (Hpos) "#Hinv %Φ AU".
+    wp_rec.
+    wp_bind (! _)%E.
+    iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+    wp_load.
+    destruct valid eqn:Hvalid.
+    - destruct Hvalidated as (Heven & <- & <-).
+      rewrite -Nat.even_spec in Heven.
+      rewrite Heven.
+      iDestruct "Hlock" as "(Hγᵢ & Hγᵥ & %Hunlocked & Hcache)".
+      iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
+      iMod (log_frag_alloc with "●Hlog") as "[H● #H◯]".
+      { eauto. }
+      iMod ("Hcl" with "[-AU]") as "_".
+      { rewrite /cached_wf_inv.
+        iExists ver, log, actual, actual, true, backup, backup, requests, index.
+        rewrite Heven.
+        iFrame "∗ # %". iIntros "!> !%".
+        split.
+        { by rewrite -Nat.even_spec. }
+        done. }
       iModIntro.
-      iApply ("HΦ" with "Hsrc"). }
-    { destruct (Nat.even ver') eqn:Heven''.
-      - iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst & %Hcons')".
-        iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless].
-        (* Our request is still pending *)
-        (* This is impossible, as the value stored in the cell is what was prophecized *)
-        iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
-        assert (S (S ver) ≤ ver') as Htight%div2_mono by lia. simpl in Htight. lia.
-      - iMod "Hlock" as "(Hγₕ & Hγᵥ & Hdst)".
-        iDestruct (mono_nat_lb_own_valid with "Hγᵥ Hlb") as %[_ Hless''].
-        (* Our request is still pending *)
-        (* This is impossible, as the value stored in the cell is what was prophecized *)
-        iCombine "Hlin Hlin'" gives %[_ Heq%bool_decide_eq_true].
-        assert (S (S ver) ≤ ver') as Htight%div2_mono by lia.
-        simpl in Htight. lia. }
-    { (* We have returned *)
-      (* This is impossible, as we still own the token. There cannot be another copy in the invariant *)
-      iCombine "Hγₜ Htok" gives %[]. }
+      wp_pures.
+      wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
+      { done. }
+      iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
+      wp_pures.
+      
+
+      iInv cached_wfN as "(%ver' & %log' & %actual' & %cache & %valid' & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+
+
+      rewrite bool_decide_eq_false_2; first last.
+      { rewrite Zrem_even even_inj Hparity //. }
+      wp_pures.
+      wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
+      { done. }
+      iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
+      wp_pures.
+      wp_bind (! _)%E.
+      iInv cached_wfN as "(%ver' & %log' & %vs' & %registry' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hlog' & Hlock)" "Hcl".
+      destruct (decide (ver = ver')) as [<- | Hne].
+      + rewrite Hparity.
+        iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons')".
+        rewrite /log_frag_own.
+        iPoseProof (log_auth_frag_agree with "Hγₕ H◯") as "%Hlookup".
+        rewrite last_lookup Hlog' /= in Hcons'.
+        rewrite Hlog /=.
+        rewrite Hlog /= in Hlookup.
+        assert (Some vs = Some vs') as [=<-].
+        { by rewrite -Hlookup -Hcons'. }
+        clear Hcons'. simplify_eq.
+        iAssert (⌜vs = vdst⌝)%I with "[Hcons Hγᵥ]" as "<-".
+        { iClear "IH".
+          iApply pure_mono.
+          { by apply list_eq_same_length. }
+          rewrite big_sepL2_forall.
+          iDestruct "Hcons" as "[%Heq #Hcons]".
+          iIntros (i v v' Hlt Hv Hv').
+          assert (i < length vers) as [ver' Hver']%lookup_lt_is_Some by lia.
+          iPoseProof ("Hcons" with "[//] [//]") as "[#Hlb' #Hfrag]".
+          assert (ver ≤ ver') as Hle by (by eapply Forall_lookup).
+          iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb'") as "[%Hq %Hge]".
+          assert (ver = ver') as <- by lia.
+          clear Hle Hge.
+          iPoseProof ("Hfrag" with "[]") as "(%vs' & #Hvs' & %Hlookup')".
+          { by rewrite -Nat.even_spec. }
+          iCombine "H◯ Hvs'" gives %Hvalid%auth_frag_op_valid_1.
+          rewrite singleton_op singleton_valid in Hvalid.
+          apply to_agree_op_inv_L in Hvalid as <-.
+          iPureIntro. apply (inj Some). by rewrite -Hv -Hlookup'. }
+        wp_load.
+        iMod "AU" as (vs') "[Hγ' [_ Hconsume]]".
+        iCombine "Hγ Hγ'" gives %[_ <-].
+        iMod ("Hconsume" $! dst with "[$Hγ']") as "HΦ".
+        iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+        { rewrite /cached_wf_inv.
+          iExists ver, log', vs. rewrite Hparity. iFrame "∗ %".
+          iPureIntro. rewrite last_lookup. by rewrite Hlog'. }
+        iModIntro. wp_pures. rewrite bool_decide_eq_true_2; last done.
+        wp_pures. iModIntro. by iApply "HΦ".
+      + destruct (Nat.even ver') eqn:Hparity'''.
+        * iMod "Hlock" as "(Hversion & Hsrc & log)".
+          wp_load.
+          iMod ("Hcl" with "[-AU]") as "_".
+          { rewrite /cached_wf_inv.
+            iExists ver', log', vs'. rewrite Hparity'''. by iFrame "∗ %". }
+          iModIntro.
+          wp_pures.
+          case_bool_decide; simplify_eq.
+          wp_pures.
+          iApply ("IH" with "AU").
+        * iDestruct "Hlock" as "(Hversion & Hsrc)".
+          wp_load.
+          iMod ("Hcl" with "[-AU]") as "_".
+          { rewrite /cached_wf_inv.
+            iExists ver', log', vs'. rewrite Hparity'''. by iFrame "∗ %". }
+          iModIntro.
+          wp_pures.
+          case_bool_decide; simplify_eq.
+          wp_pures.
+          iApply ("IH" with "AU").
+    - iDestruct "Hlock" as "(Hγₕ & Hγᵥ & Hsrc)".
+      iMod ("Hcl" with "[-AU]") as "_".
+      { rewrite /cached_wf_inv.
+        iExists ver, log, vs. rewrite Hparity. by iFrame "∗ %". }
+      iModIntro.
+      wp_pures.
+      rewrite bool_decide_eq_true_2; first last.
+      { rewrite Zrem_even even_inj Hparity. by destruct ver. }
+      wp_pures.
+      iApply ("IH" with "AU").
   Qed.
 
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
