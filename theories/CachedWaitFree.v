@@ -76,8 +76,8 @@ Definition indexUR := authUR $ gmapUR nat (agreeR locO).
 
 Definition logUR := authUR $ gmapUR loc $ agreeR $ listO valO.
 
-Definition requestReg := gmap nat $ agree (gname * loc).
-Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO gnameO locO.
+Definition requestReg := gmap nat $ agree (gname * gname * loc).
+Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO (prodO gnameO gnameO) locO.
 
 Definition usedUR := authUR $ gsetUR $ locO.
 
@@ -238,16 +238,16 @@ Section cached_wf.
     rewrite -lookup_fmap /= Hvs'' //.
   Qed.
 
-  Definition registry γᵣ (requests : list (gname * loc)) :=
+  Definition registry γᵣ (requests : list (gname * gname * loc)) :=
     own γᵣ (● map_seq O (to_agree <$> requests)).
 
   (* Fragmental ownership over a single request *)
-  Definition registered γᵣ i (γₗ : gname) (l : loc) :=
-   own γᵣ (◯ ({[i := to_agree (γₗ, l)]})).
+  Definition registered γᵣ i (γₗ γₑ : gname) (l : loc) :=
+   own γᵣ (◯ ({[i := to_agree (γₗ, γₑ, l)]})).
 
-  Lemma registry_update γₗ l γ requests : 
+  Lemma registry_update γₗ γₑ l γ requests : 
     registry γ requests ==∗ 
-      registry γ (requests ++ [(γₗ, l)]) ∗ registered γ (length requests) γₗ l.
+      registry γ (requests ++ [(γₗ, γₑ, l)]) ∗ registered γ (length requests) γₗ γₑ l.
   Proof.
     iIntros "H●".
     rewrite /registry /registered.
@@ -256,7 +256,7 @@ Section cached_wf.
       apply alloc_singleton_local_update 
         with 
           (i := length requests)
-          (x := to_agree (γₗ, l)).
+          (x := to_agree (γₗ, γₑ, l)).
       { rewrite lookup_map_seq_None length_fmap. by right. }
       constructor. }
     replace (length requests) with (O + length (to_agree <$> requests)) at 1 
@@ -265,10 +265,10 @@ Section cached_wf.
   Qed.
 
   (* The authoritative view of the request registry must agree with its fragment *)
-  Lemma registry_agree γᵣ (requests : list (gname * loc)) (i : nat) γₗ ver :
+  Lemma registry_agree γᵣ (requests : list (gname * gname * loc)) (i : nat) γₗ γₑ ver :
     registry γᵣ requests -∗
-      registered γᵣ i γₗ ver -∗
-        ⌜requests !! i = Some (γₗ, ver)⌝.
+      registered γᵣ i γₗ γₑ ver -∗
+        ⌜requests !! i = Some (γₗ, γₑ, ver)⌝.
   Proof.
     iIntros "H● H◯".
     iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
@@ -292,28 +292,31 @@ Section cached_wf.
     ∨ (token γₜ ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
   Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
-    ([∗ map] l ↦ value ∈ log, l ↦∗ value ∧ ⌜length value = n⌝).
+    ([∗ map] l ↦ value ∈ log, l ↦∗ value ∗ ⌜length value = n⌝)%I.
 
   Lemma log_points_to_impl log l value n :
     log !! l = Some value →
     log_points_to n log -∗
-    l ↦∗ value ∧ ⌜length value = n⌝.
+    l ↦∗ value ∗ ⌜length value = n⌝.
   Proof.
     iIntros (Hbound) "Hlog".
     by iApply (big_sepM_lookup with "Hlog").
   Qed.
 
-  Definition request_inv γ γₑ γₗ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
+
+  (* log_points_to (length vs) {[backup := to_agree vs]} ⊣⊢  *)
+
+  Definition request_inv γ γₗ γₑ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
     ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
     ∃ (Φ : val → iProp Σ) (γₜ : gname) (ldes : loc) (dq dq' : dfrac) (expected desired : list val),
       ghost_var γₑ (1/2) (bool_decide (actual = expected)) ∗
       inv casN (cas_inv Φ γ γₑ γₗ γₜ lexp ldes dq dq' expected desired).
 
-  Definition registry_inv γ γₑ lactual actual (requests : list (gname * loc)) (used : gset loc) : iProp Σ :=
-    [∗ list] '(γₗ, lexp) ∈ requests,
-      request_inv γ γₑ γₗ lactual lexp actual used.
-
+  Definition registry_inv γ lactual actual (requests : list (gname * gname * loc)) (used : gset loc) : iProp Σ :=
+    [∗ list] '(γₗ, γₑ, lexp) ∈ requests,
+    
+    request_inv γ γₗ γₑ lactual lexp actual used.
   Lemma array_frac_add l dq dq' vs vs' : length vs = length vs' → l ↦∗{dq} vs -∗ l ↦∗{dq'} vs' -∗ l ↦∗{dq ⋅ dq'} vs ∗ ⌜vs = vs'⌝.
   Proof.
     iIntros (Hlen) "Hl Hl'".
@@ -330,7 +333,7 @@ Section cached_wf.
   Qed.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
-  Lemma linearize_cas γ γₑ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
+  Lemma linearize_cas γ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
     length actual > 0 →
     (* The current and previous logical state should be distinct if swapping backup pointer *)
     actual ≠ actual' →
@@ -345,7 +348,7 @@ Section cached_wf.
     (* The logical state has not yet been updated to the new state *)
     ghost_var γ (1/2) actual' -∗
     (* The registry invariant is satisfied for the current logical state *)
-    registry_inv γ γₑ lactual actual requests (dom log)
+    registry_inv γ lactual actual requests (dom log)
     (* We can take frame-preserving updated that linearize the successful CAS,
        alongside all of the other failing CAS's *)
     ={⊤ ∖ ↑cached_wfN}=∗
@@ -356,10 +359,10 @@ Section cached_wf.
       (* Update new logical state to correspond to logical CAS *)
       ghost_var γ (1/2) actual' ∗
       (* Invariant corresponding to new logical state *)
-      registry_inv γ γₑ lactual' actual' requests (dom log).
+      registry_inv γ lactual' actual' requests (dom log).
   Proof.
     iIntros (Hpos Hne Hlen Hlogged) "Hlog Hactual' Hγ Hreqs".
-    iInduction requests as [|[γₗ lexp] reqs'] "IH".
+    iInduction requests as [|[[γₗ γₑ] lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
       iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
@@ -424,9 +427,7 @@ Section cached_wf.
         done.
   Qed.
 
-  Search (bool → Prop).
-
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ γₑ : gname) (l : loc) (len : nat) : iProp Σ :=
+  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (log : gmap loc (list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) requests (index : list loc),
       (* Physical state of version *)
       l ↦ #ver ∗
@@ -441,7 +442,7 @@ Section cached_wf.
       ⌜if valid then Nat.Even ver ∧ actual = cache ∧ backup = backup' else True⌝ ∗
       registry γᵣ requests ∗
       (* State of request registry *)
-      registry_inv γ γₑ (l +ₗ 1) actual requests (dom log) ∗
+      registry_inv γ (l +ₗ 1) actual requests (dom log) ∗
       (* Big atomic is of fixed size *)
       ⌜length actual = len⌝ ∗ 
       ⌜length cache = len⌝ ∗
@@ -468,10 +469,10 @@ Section cached_wf.
         (* If locked, have only read-only access to ensure one updater *)
         index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache ∗ ⌜valid = false⌝.
 
-  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ γₑ (dst src : loc) (n i : nat) vdst ver :
+  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
@@ -617,10 +618,10 @@ Section cached_wf.
     repeat rewrite -lookup_fmap //.
   Qed.
 
-  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ γᵢ γₑ (dst src : loc) (n : nat) vdst ver :
+  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     length vdst = n →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ dst ↦∗ vdst }}}
@@ -652,14 +653,14 @@ Section cached_wf.
      rewrite -(Loc.add_0 dst).
      replace (Z.of_nat n) with (n - 0)%Z by lia.
      change 0%Z with (Z.of_nat O).
-     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
+     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
      iIntros "!> %vers %vdst' /=".
      rewrite Nat.sub_0_r //.
   Qed.
 
-  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ γᵢ γₑ (src : loc) (n : nat) ver :
+  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ γᵢ (src : loc) (n : nat) ver :
     n > 0 →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ src n) -∗
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ True }}}
@@ -715,9 +716,9 @@ Section cached_wf.
     - intros [k H]. exists (Z.to_nat k). lia.
   Qed.
 
-  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ γᵢ γₑ dst src (vs vs' : list val) i n dq :
+  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ γᵢ dst src (vs vs' : list val) i n dq :
     i ≤ n → length vs = n - i → length vs = length vs' →
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ dst n) -∗
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ dst n) -∗
           {{{ (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
             array_copy_to #(dst +ₗ 2 +ₗ i) #(src +ₗ i) #(n - i)%nat
           {{{ RET #(); (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
@@ -789,9 +790,9 @@ Section cached_wf.
           by rewrite -Nat2Z.inj_add Nat.add_comm /=.
   Qed.
 
-  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ γᵢ γₑ dst src (vs vs' : list val) n dq :
+  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ γᵢ dst src (vs vs' : list val) n dq :
     length vs = n → length vs = length vs' →
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ γₑ dst n) -∗
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ dst n) -∗
           {{{ (dst +ₗ 2) ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
             array_copy_to #(dst +ₗ 2) #src #n
           {{{ RET #(); (dst +ₗ 2) ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
@@ -801,7 +802,7 @@ Section cached_wf.
     rewrite -(Loc.add_0 src).
     change 0%Z with (Z.of_nat 0).
     rewrite -{2}(Nat.sub_0_r n).
-    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
+    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
     - lia.
     - lia.
     - done.
@@ -824,24 +825,9 @@ Section cached_wf.
   Lemma div2_def n : Nat.div2 (S (S n)) = S (Nat.div2 n).
   Proof. done. Qed.
 
-  Lemma array_frac_add l dq dq' vs vs' : length vs = length vs' → l ↦∗{dq} vs -∗ l ↦∗{dq'} vs' -∗ l ↦∗{dq ⋅ dq'} vs ∗ ⌜vs = vs'⌝.
-  Proof.
-    iIntros (Hlen) "Hl Hl'".
-    iInduction vs as [|v vs] "IH" forall (l vs' Hlen).
-    - symmetry in Hlen. rewrite length_zero_iff_nil in Hlen. simplify_list_eq. by iSplit.
-    - destruct vs' as [|v' vs']; simplify_list_eq.
-      repeat rewrite array_cons.
-      iDestruct "Hl" as "[Hl Hls]".
-      iDestruct "Hl'" as "[Hl' Hls']".
-      iCombine "Hl Hl'" as "Hl" gives %[_ <-].
-      iFrame.
-      iPoseProof ("IH" with "[//] [$] [$]") as "[Hl <-]".
-      by iFrame.
-  Qed.
-
   Definition is_cached_wf (v : val) (γ : gname) (n : nat) : iProp Σ :=
-    ∃ (dst : loc) (γₕ γᵥ γᵣ : gname),
-      ⌜v = #dst⌝ ∗ inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ dst n).
+    ∃ (dst : loc) (γₕ γᵥ γᵣ γᵢ : gname),
+      ⌜v = #dst⌝ ∗ inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ dst n).
 
   Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
     length vs = n → n > 0 →
@@ -855,25 +841,52 @@ Section cached_wf.
     wp_alloc l as "Hl".
     { done. }
     wp_pures.
-    rewrite Nat2Z.id /= array_cons.
-    iDestruct "Hl" as "[Hversion Hl]".
-    wp_apply (wp_array_copy_to with "[$Hl $Hsrc]").
+    rewrite Nat2Z.id /= array_cons array_cons.
+    iDestruct "Hl" as "(Hversion & Hvalidated & Hcache)".
+    rewrite Loc.add_assoc /=.
+    change (1 + 1)%Z with 2%Z.
+    wp_apply (wp_array_clone with "Hsrc").
+    { auto. }
+    { lia. }
+    iIntros (backup) "[Hbackup Hsrc]".
+    wp_store.
+    wp_smart_apply (wp_array_copy_to _ _ _ _ (replicate n #0) vs with "[$]").
     { by rewrite length_replicate. }
     { auto. }
-    iIntros "[Hl Hsrc]".
-    wp_pures.
+    iIntros "[Hcache Hsrc]". wp_pures.
     iMod (ghost_var_alloc vs) as "(%γ & Hγ & Hγ')".
     iMod (mono_nat_own_alloc 0) as "(%γᵥ & Hγᵥ & _)".
-    iMod (own_alloc (● map_seq O (to_agree <$> [vs]))) as "[%γₕ Hγₕ]".
+    iMod (own_alloc (● map_seq O (to_agree <$> [backup]))) as "[%γᵢ Hγᵢ]".
     { by apply auth_auth_valid, singleton_valid. }
+    iMod (own_alloc (● {[ backup := to_agree vs ]})) as "[%γₕ Hγₕ]".
+    { by apply auth_auth_valid, singleton_valid. }
+    rewrite -map_fmap_singleton.
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ l n) with "[Hl Hversion Hγ' Hγᵥ Hγₕ Hγᵣ]") as "H".
-    { rewrite /cached_wf_inv /registry_inv. iExists O, [vs], vs, [].
-      simpl. by iFrame "∗ %". }
+    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) with "[Hbackup $Hvalidated Hversion $Hγ' Hγᵥ Hγₕ $Hγᵣ Hγᵢ Hcache]") as "#Hinv".
+    { rewrite /cached_wf_inv /registry_inv.
+      iExists O, ({[backup := vs]}), vs, backup, [backup]. simpl. iFrame "∗ %".
+      iSplit; first done.
+      iNext. iSplit.
+      { iPureIntro. split.
+        { rewrite -Nat.even_spec /= //. }
+        { auto. } }
+      iSplitL "Hbackup".
+      { iFrame. rewrite /log_points_to /= big_sepM_singleton. by iFrame. }
+      iSplit.
+      { by rewrite lookup_singleton. }
+      iSplit.
+      { done. }
+      iSplit.
+      { iPureIntro. apply NoDup_singleton. }
+      iSplit.
+      { iPureIntro. rewrite Forall_singleton. set_solver. }
+      by rewrite lookup_singleton. }
     iModIntro.
-    iApply ("HΦ" $! #l γ).
-    by iFrame.
+    iApply "HΦ".
+    iFrame.
+    rewrite /is_cached_wf.
+    iExists _, _, _, _, _. by iFrame "#".
   Qed.
 
   Lemma wp_loop_while γ γᵥ γₕ γᵣ (l : loc) (n ver : nat) :
