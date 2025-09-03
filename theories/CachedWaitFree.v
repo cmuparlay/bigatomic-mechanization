@@ -238,6 +238,21 @@ Section cached_wf.
     rewrite -lookup_fmap /= Hvs'' //.
   Qed.
 
+Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) : 
+    index_auth_own γ 1 index -∗
+      index_frag_own γ i l -∗
+        ⌜index !! i = Some l⌝.
+  Proof.
+    iIntros "H● H◯".
+    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
+    assert (✓ y) as Hy.
+    { by eapply lookup_valid_Some; eauto. }
+    pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
+    rewrite -Hvs'' to_agree_included in H. simplify_eq.
+    iPureIntro. apply leibniz_equiv, (inj (fmap to_agree)).
+    rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
+  Qed.
+
   Definition registry γᵣ (requests : list (gname * gname * loc)) :=
     own γᵣ (● map_seq O (to_agree <$> requests)).
 
@@ -945,6 +960,13 @@ Section cached_wf.
       by rewrite -not_true_iff_false Z.odd_spec -Odd_inj in H.
   Qed.
 
+
+  Lemma forall_wand {A} (P : iProp Σ) (Q : A → iProp Σ) : (∀ x, P -∗ Q x) -∗ P -∗ ∀ x, Q x.
+  Proof.
+    iIntros "H HP %x".
+    by iApply "H".
+  Qed.
+
   Lemma read'_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (n : nat) :
     n > 0 →
       inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
@@ -979,7 +1001,10 @@ Section cached_wf.
       wp_bind (! _)%E.
       iInv cached_wfN as "(%ver' & %log' & %actual' & %cache' & %valid' & %backup₁ & %backup₁' & %requests' & %index' & >Hver & >Hbackup & >Hγ & >%Hindex' & >%Hvalidated' & >Hregistry & Hreginv & >%Hlenactual' & >%Hlencache' & >Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & Hlock)" "Hcl".
       wp_load.
-      destruct (decide (ver = ver')) as [<- | Hne].
+      iMod "AU" as (vs') "[Hγ' [_ Hconsume]]".
+      iCombine "Hγ Hγ'" gives %[_ <-].
+      iMod ("Hconsume" with "[$Hγ']") as "HΦ".
+      destruct (decide (ver = ver')) as [<- | Hne]. 
       + rewrite Heven.
         iDestruct "Hlock" as "(Hγᵢ & Hγᵥ & %Hunlocked' & Hcache)".
         rewrite /log_frag_own.
@@ -1008,6 +1033,24 @@ Section cached_wf.
             rewrite singleton_op singleton_valid in Hvalid.
             apply to_agree_op_inv_L in Hvalid as <-.
             iPureIntro. apply (inj Some). by rewrite -Hv -Hlookup'. }
+          rewrite last_lookup Hlenᵢ /= in Hindex.
+
+          Check Hindex.
+          iMod ("Hcl" with "[-]") as "_".
+          { iExists ver, log', actual', actual', true, backup₁, backup₁, requests', index'.
+            iFrame "∗ # %". rewrite last_lookup Hlenᵢ' Heven /=. iFrame "∗ # %".
+            iIntros "!> !%". split; last done. by rewrite -Nat.even_spec. }
+          iMod
+
+
+            rewrite Heven.
+
+            iExists ver', log', actual, cache, valid, backup, backup', requests, index.
+            rewrite Heven. iFrame "∗ # %
+            ". }
+          
+          
+          
           
           
         (* rewrite Hlog /=.
