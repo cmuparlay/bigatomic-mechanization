@@ -959,53 +959,62 @@ Section cached_wf.
     wp_bind (! _)%E.
     iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
     wp_load.
-    destruct valid eqn:Hvalid.
-    - destruct Hvalidated as (Heven & <- & <-).
-      rewrite -Nat.even_spec in Heven.
-      rewrite Heven.
-      iDestruct "Hlock" as "(Hγᵢ & Hγᵥ & %Hunlocked & Hcache)".
+    destruct (Nat.even ver) eqn:Heven.
+    - iDestruct "Hlock" as "(Hγᵢ & Hγᵥ & %Hunlocked & Hcache)".
       iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb".
-      iMod (log_frag_alloc with "●Hlog") as "[H● #H◯]".
+      iMod (log_frag_alloc with "●Hlog") as "[●Hlog #◯Hlog]".
       { eauto. }
+      iMod (index_frag_alloc with "Hγᵢ") as "[●Hindex #◯Hindex]".
+      { by rewrite last_lookup Hlenᵢ /= in Hindex. }
       iMod ("Hcl" with "[-AU]") as "_".
       { rewrite /cached_wf_inv.
-        iExists ver, log, actual, actual, true, backup, backup, requests, index.
-        rewrite Heven.
-        iFrame "∗ # %". iIntros "!> !%".
-        split.
-        { by rewrite -Nat.even_spec. }
-        done. }
+        iExists ver, log, actual, cache, valid, backup, backup', requests, index.
+        rewrite Heven. iFrame "∗ # %". }
       iModIntro.
       wp_pures.
       wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
       { done. }
       iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
       wp_pures.
-      
-
-      iInv cached_wfN as "(%ver' & %log' & %actual' & %cache & %valid' & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
-
-
-      rewrite bool_decide_eq_false_2; first last.
-      { rewrite Zrem_even even_inj Hparity //. }
-      wp_pures.
-      wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
-      { done. }
-      iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
-      wp_pures.
       wp_bind (! _)%E.
-      iInv cached_wfN as "(%ver' & %log' & %vs' & %registry' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hlog' & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log' & %actual' & %cache' & %valid' & %backup₁ & %backup₁' & %requests' & %index' & >Hver & >Hbackup & >Hγ & >%Hindex' & >%Hvalidated' & >Hregistry & Hreginv & >%Hlenactual' & >%Hlencache' & >Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & Hlock)" "Hcl".
+      wp_load.
       destruct (decide (ver = ver')) as [<- | Hne].
-      + rewrite Hparity.
-        iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hsrc & %Hcons')".
+      + rewrite Heven.
+        iDestruct "Hlock" as "(Hγᵢ & Hγᵥ & %Hunlocked' & Hcache)".
         rewrite /log_frag_own.
-        iPoseProof (log_auth_frag_agree with "Hγₕ H◯") as "%Hlookup".
-        rewrite last_lookup Hlog' /= in Hcons'.
-        rewrite Hlog /=.
+        iPoseProof (log_auth_frag_agree with "●Hlog ◯Hlog") as "%Hlookup".
+        destruct valid' eqn:Hvalid'.
+        * destruct Hvalidated' as (_ & <- & <-).
+          rewrite last_lookup Hlenᵢ' /= in Hindex'.
+          iAssert (⌜cache = vdst⌝)%I with "[Hcons Hγᵥ]" as "<-".
+          { iApply pure_mono.
+            { by apply list_eq_same_length. }
+            rewrite big_sepL2_forall.
+            iDestruct "Hcons" as "[%Heq #Hcons]".
+            iIntros (i v v' Hlt Hv Hv').
+            assert (i < length vers) as [ver' Hver']%lookup_lt_is_Some by lia.
+            iPoseProof ("Hcons" with "[//] [//]") as "[#Hlb' #Hfrag]".
+            assert (ver ≤ ver') as Hle by (by eapply Forall_lookup).
+            iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb'") as "[%Hq %Hge]".
+            assert (ver = ver') as <- by lia.
+            clear Hle Hge.
+            iPoseProof ("Hfrag" with "[]") as "(%l' & %vs' & #◯Hindex' & #◯Hlog' & %Hlookup')".
+            { by rewrite -Nat.even_spec. }
+            iCombine "◯Hindex ◯Hindex'" gives %Hvalid%auth_frag_op_valid_1.
+            rewrite singleton_op singleton_valid in Hvalid.
+            apply to_agree_op_inv_L in Hvalid as <-.
+            iCombine "◯Hlog ◯Hlog'" gives %Hvalid%auth_frag_op_valid_1.
+            rewrite singleton_op singleton_valid in Hvalid.
+            apply to_agree_op_inv_L in Hvalid as <-.
+            iPureIntro. apply (inj Some). by rewrite -Hv -Hlookup'. }
+          
+          
+        (* rewrite Hlog /=.
         rewrite Hlog /= in Hlookup.
         assert (Some vs = Some vs') as [=<-].
         { by rewrite -Hlookup -Hcons'. }
-        clear Hcons'. simplify_eq.
+        clear Hcons'. simplify_eq. *)
         iAssert (⌜vs = vdst⌝)%I with "[Hcons Hγᵥ]" as "<-".
         { iClear "IH".
           iApply pure_mono.
