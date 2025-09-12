@@ -430,7 +430,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Qed.
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (log : gmap loc (list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) requests (index : list loc),
+    ∃ (ver : nat) (log : gmap loc (gname * list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) requests (index : list loc),
       (* Physical state of version *)
       l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
@@ -452,7 +452,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
       log_points_to (length actual) log ∗
       (* The last item in the log corresponds to the currently installed backup pointer *)
-      ⌜log !! backup = Some actual⌝ ∗
+      ⌜snd <$> log !! backup = Some actual⌝ ∗
       (* Store full authoritative ownership of the log in the invariant *)
       log_auth_own γₕ 1 log ∗
       (* The is a mapping in the index for every version *)
@@ -466,7 +466,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ ⌜log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗ cache
+        index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ ⌜snd <$> log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗ cache
       else 
         (* If locked, have only read-only access to ensure one updater *)
         index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache ∗ ⌜valid = false⌝.
