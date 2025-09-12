@@ -74,7 +74,7 @@ Definition index := gmap nat $ agree nat.
 
 Definition indexUR := authUR $ gmapUR nat (agreeR locO).
 
-Definition logUR := authUR $ gmapUR loc $ agreeR $ listO valO.
+Definition logUR := authUR $ gmapUR loc $ agreeR $ (prodO gnameO (listO valO)).
 
 Definition requestReg := gmap nat $ agree (gname * gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO (prodO gnameO gnameO) locO.
@@ -146,11 +146,11 @@ Section cached_wf.
 
   Definition index_auth_own γᵢ (q : Qp) (index : list loc) := own γᵢ (●{#q} map_seq 0 (to_agree <$> index)).
 
-  Definition log_auth_own γᵥ (q : Qp) (log : gmap loc (list val)) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
+  Definition log_auth_own γᵥ (q : Qp) (log : gmap loc (gname * list val)) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
 
   Definition value γᵥ (vs : list val) : iProp Σ := ghost_var γᵥ (1/2) vs.
 
-  Definition log_frag_own γₕ l (value : list val) := own γₕ (◯ {[l := to_agree value]}).
+  Definition log_frag_own γₕ l γ (value : list val) := own γₕ (◯ {[l := to_agree (γ, value)]}).
 
   Definition index_frag_own γᵢ (i : nat) (l : loc) := own γᵢ (◯ {[i := to_agree l]}).
 
@@ -188,10 +188,10 @@ Section cached_wf.
     by iFrame.
   Qed.
 
-  Lemma log_auth_update (l : loc) (value : list val) γₕ (log : gmap loc (list val)) :
+  Lemma log_auth_update (l : loc) (value : list val) (γ γₕ : gname) (log : gmap loc (gname * list val)) :
     log !! l = None →
-    log_auth_own γₕ 1 log ==∗
-      log_auth_own γₕ 1 (<[l := value]>log) ∗ log_frag_own γₕ l value.
+      log_auth_own γₕ 1 log ==∗
+        log_auth_own γₕ 1 (<[l := (γ, value)]>log) ∗ log_frag_own γₕ l γ value.
   Proof.
     iIntros (Hfresh) "H●".
     rewrite /log_auth_own /log_frag_own.
@@ -200,33 +200,33 @@ Section cached_wf.
       apply alloc_singleton_local_update 
         with 
           (i := l)
-          (x := to_agree value).
+          (x := to_agree (γ, value)).
       { by rewrite lookup_fmap fmap_None. }
       constructor. }
     rewrite fmap_insert.
     by iFrame.
   Qed.
 
-  Lemma log_frag_alloc i value γₕ log q :
-    log !! i = Some value →
+  Lemma log_frag_alloc i γ value γₕ log q :
+    log !! i = Some (γ, value) →
       log_auth_own γₕ q log ==∗
-        log_auth_own γₕ q log ∗ log_frag_own γₕ i value.
+        log_auth_own γₕ q log ∗ log_frag_own γₕ i γ value.
   Proof.
     iIntros (Hlookup) "Hauth".
     iMod (own_update with "Hauth") as "[H● H◯]".
-    { apply auth_update_dfrac_alloc with (b := {[i := to_agree value]}).
+    { apply auth_update_dfrac_alloc with (b := {[i := to_agree (γ, value)]}).
       { apply _. }
       apply singleton_included_l with (i := i).
-      exists (to_agree value). split; last done.
+      exists (to_agree (γ, value)). split; last done.
       rewrite lookup_fmap Hlookup //.
     }
     by iFrame.
   Qed.
 
-  Lemma log_auth_frag_agree γₕ q log i value : 
+  Lemma log_auth_frag_agree γₕ q log i γ value : 
     log_auth_own γₕ q log -∗
-      log_frag_own γₕ i value -∗
-        ⌜log !! i = Some value⌝.
+      log_frag_own γₕ i γ value -∗
+        ⌜log !! i = Some (γ, value)⌝.
   Proof.
     iIntros "H● H◯".
     iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
@@ -306,19 +306,19 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
-  Definition log_points_to (n : nat) (log : gmap loc (list val)) : iProp Σ :=
-    ([∗ map] l ↦ value ∈ log, l ↦∗ value ∗ ⌜length value = n⌝)%I.
+  Definition log_points_to (n : nat) (log : gmap loc (gname * list val)) : iProp Σ :=
+    ([∗ map] _ ↦ '(γ, value) ∈ log, token γ ∗ ⌜length value = n⌝)%I.
 
-  Lemma log_points_to_impl log l value n :
-    log !! l = Some value →
+  Lemma log_points_to_impl log l γ value n :
+    log !! l = Some (γ, value) →
     log_points_to n log -∗
-    l ↦∗ value ∗ ⌜length value = n⌝.
+    token γ ∗ ⌜length value = n⌝.
   Proof.
     iIntros (Hbound) "Hlog".
-    by iApply (big_sepM_lookup with "Hlog").
+    iPoseProof (big_sepM_lookup with "Hlog") as "H /=".
+    { done. }
+    done. 
   Qed.
-
-  (* log_points_to (length vs) {[backup := to_agree vs]} ⊣⊢  *)
 
   Definition request_inv γ γₗ γₑ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
@@ -347,18 +347,18 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Qed.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
-  Lemma linearize_cas γ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (list val)) :
+  Lemma linearize_cas γ (ver : nat) (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (gname * list val)) (γₜ : gname) :
     length actual > 0 →
     (* The current and previous logical state should be distinct if swapping backup pointer *)
     actual ≠ actual' →
     (* Both the current and new logical state are comprised of the same number of bytes *)
     length actual = length actual' → 
     (* The current backup pointer has been logged *)
-    lactual ∈ dom log →
+    fst <$> log !! lactual' = Some γₜ →
     (* Points-to predicate of every previously logged backup *)
     log_points_to (length actual) log -∗
     (* Physical state of backup *)
-    lactual' ↦∗ actual' -∗
+    token γₜ -∗
     (* The logical state has not yet been updated to the new state *)
     ghost_var γ (1/2) actual' -∗
     (* The registry invariant is satisfied for the current logical state *)
@@ -368,19 +368,19 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     ={⊤ ∖ ↑cached_wfN}=∗
       (* Points-to predicate of every previously logged backup *)
       log_points_to (length actual) log ∗
-      (* Return ownership of points-to predicate for new backup *)
-      lactual' ↦∗ actual' ∗
+      (* Return ownership of token *)
+      token γₜ ∗
       (* Update new logical state to correspond to logical CAS *)
       ghost_var γ (1/2) actual' ∗
       (* Invariant corresponding to new logical state *)
       registry_inv γ lactual' actual' requests (dom log).
   Proof.
-    iIntros (Hpos Hne Hlen Hlogged) "Hlog Hactual' Hγ Hreqs".
+    iIntros (Hpos Hne Hlen Hlogged) "Hlog Hγₜ Hγ Hreqs".
     iInduction requests as [|[[γₗ γₑ] lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
-      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
-      iMod ("IH" with "Hlog Hactual' Hγ Hreqs'") as "(Hlog & Hactual & Hγ & Hreqinv)".
+      iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ' & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
+      iMod ("IH" with "Hlog Hγₜ Hγ Hreqs'") as "(Hlog & Hactual & Hγ & Hreqinv)".
       iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hγₑ' & >Hlin') | (>Htok & [%b >Hγₑ'] & [%b' >Hlin'])]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
         iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']". 
@@ -388,18 +388,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         iMod ("Hclose" with "[HΦ Hγₑ Hlin]") as "_".
         { iLeft. iFrame. }
         destruct (decide (lactual' = lexp)) as [-> | Hneq].
-        * apply elem_of_dom in Hfresh as [value Hvalue].
+        * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
           iPoseProof (log_points_to_impl with "Hlog") as "[Hactual' %Hlen']".
           { done. }
-          iPoseProof (array_frac_add with "Hactual Hactual'") as "[Habsurd _]".
-          { by etransitivity. }
-          assert (length actual' > 0) as Hpos'.
-          { by rewrite -Hlen. }
-          destruct actual'.
-          { inv Hpos'. }
-          repeat rewrite array_cons.
-          iDestruct "Habsurd" as "[Habsurd _]".
-          by iPoseProof (pointsto_valid with "Habsurd") as "%H".
+          rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
+          destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
+          simplify_eq. simpl. iCombine "Hactual Hactual'" gives %[].
         * iFrame "∗ # %".
           rewrite /request_inv.
           replace (bool_decide (lactual' = lexp)) with false.
@@ -413,18 +407,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         iCombine "Hγ Hγ'" gives %[_ <-].
         rewrite (bool_decide_eq_false_2 (actual' = expected)); last done.
         destruct (decide (lactual' = lexp)) as [-> | Hdiff].
-        * apply elem_of_dom in Hfresh as [value Hvalue].
+        * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
           iPoseProof (log_points_to_impl with "Hlog") as "[Hactual' %Hlen']".
           { done. }
-          iPoseProof (array_frac_add with "Hactual Hactual'") as "[Habsurd _]".
-          { by etransitivity. }
-          assert (length actual' > 0) as Hpos'.
-          { by rewrite -Hlen. }
-          destruct actual'.
-          { inv Hpos'. }
-          repeat rewrite array_cons.
-          iDestruct "Habsurd" as "[Habsurd _]".
-          by iPoseProof (pointsto_valid with "Habsurd") as "%H".
+          rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
+          destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
+          simplify_eq. simpl. iCombine "Hactual Hactual'" gives %[].
         * iFrame "∗ # %".
           rewrite (bool_decide_eq_false_2 (lactual' = lexp)); last done.
           iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
@@ -960,13 +948,6 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       by rewrite -not_true_iff_false Z.odd_spec -Odd_inj in H.
   Qed.
 
-
-  Lemma forall_wand {A} (P : iProp Σ) (Q : A → iProp Σ) : (∀ x, P -∗ Q x) -∗ P -∗ ∀ x, Q x.
-  Proof.
-    iIntros "H HP %x".
-    by iApply "H".
-  Qed.
-
   Lemma read'_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (n : nat) :
     n > 0 →
       inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
@@ -974,7 +955,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           read' n #l @ ↑N
         <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat), value γ vs | 
             RET (#copy, (#valid, #backup), #ver)%V; 
-            copy ↦∗ vs ∗ log_frag_own γₕ backup vs ∗ if valid then index_frag_own γᵢ ver backup else True }>>.
+            copy ↦∗ vs ∗ log_frag_own γₕ backup vs ∗ if valid then index_frag_own γᵢ (Nat.div2 ver) backup else True }>>.
   Proof.
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
@@ -1034,12 +1015,30 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             apply to_agree_op_inv_L in Hvalid as <-.
             iPureIntro. apply (inj Some). by rewrite -Hv -Hlookup'. }
           rewrite last_lookup Hlenᵢ /= in Hindex.
-
-          Check Hindex.
-          iMod ("Hcl" with "[-]") as "_".
+          iDestruct (index_auth_frag_agree with "Hγᵢ ◯Hindex") as "%H".
+          simplify_eq.
+          iMod ("Hcl" with "[-HΦ Hdst]") as "_".
           { iExists ver, log', actual', actual', true, backup₁, backup₁, requests', index'.
             iFrame "∗ # %". rewrite last_lookup Hlenᵢ' Heven /=. iFrame "∗ # %".
             iIntros "!> !%". split; last done. by rewrite -Nat.even_spec. }
+          iModIntro.
+          wp_pures.
+          wp_bind (! _)%E.
+          iInv cached_wfN as "(%ver' & %log'' & %actual'' & %cache' & %valid' & %backup₂ & %backup₂' & %requests'' & %index'' & >Hver & >Hbackup & >Hγ & >%Hindex'' & >%Hvalidated'' & >Hregistry & Hreginv & >%Hlenactual'' & >%Hlencache'' & >Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & Hlock)" "Hcl".
+          wp_load.
+          iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+          { iExists ver', log'', actual'', cache', valid', backup₂, backup₂', requests'', index''.
+            iFrame "∗ # %". }
+          iModIntro.
+          destruct (decide (ver' = ver)) as [<- | Hne].
+          { wp_pures. rewrite bool_decide_eq_true_2; last done.
+            wp_pures. iModIntro. iApply "HΦ". iFrame "∗ #". }
+          { wp_pures. rewrite bool_decide_eq_false_2; first last.
+            { unfold not. intros. simplify_eq. }
+            wp_pures.
+             iApply "HΦ". }
+
+          
           iMod
 
 
