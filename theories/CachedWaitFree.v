@@ -906,7 +906,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     rewrite -map_fmap_singleton.
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-
+    iMod (array_persist with "Hbackup") as "Hbackup".
     iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) with "[Hbackup $Hvalidated Hversion $Hγ' Hγᵥ Hγₕ $Hγᵣ Hγᵢ Hcache Hγₜ]") as "#Hinv".
     { rewrite /cached_wf_inv /registry_inv.
       iExists O, ({[backup := (γₜ, vs) ]}), vs, backup, [backup]. simpl. iFrame "∗ # %".
@@ -990,6 +990,60 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       by rewrite -not_true_iff_false Z.odd_spec -Odd_inj in H.
   Qed.
 
+  Lemma twp_array_copy_to_persistent stk E (dst src : loc) vdst vsrc (n : Z) :
+    Z.of_nat (length vdst) = n → Z.of_nat (length vsrc) = n →
+      [[{ dst ↦∗ vdst ∗ src ↦∗□ vsrc }]]
+        array_copy_to #dst #src #n @ stk; E
+      [[{ RET #(); dst ↦∗ vsrc }]].
+  Proof.
+    iIntros (Hvdst Hvsrc Φ) "[Hdst Hsrc] HΦ".
+    iInduction vdst as [|v1 vdst] "IH" forall (n dst src vsrc Hvdst Hvsrc);
+      destruct vsrc as [|v2 vsrc]; simplify_eq/=; try lia; wp_rec; wp_pures.
+    { iApply "HΦ". auto with iFrame. }
+    iDestruct (array_cons with "Hdst") as "[Hv1 Hdst]".
+    iDestruct (array_cons with "Hsrc") as "[Hv2 #Hsrc]".
+    wp_load; wp_store.
+    wp_smart_apply ("IH" with "[%] [%] Hdst Hsrc") as "Hvdst"; [ lia .. | ].
+    iApply "HΦ". by iFrame.
+  Qed.
+
+  Lemma wp_array_copy_to_persistent stk E (dst src : loc) vdst vsrc (n : Z) :
+    Z.of_nat (length vdst) = n → Z.of_nat (length vsrc) = n →
+    {{{ dst ↦∗ vdst ∗ src ↦∗□ vsrc }}}
+      array_copy_to #dst #src #n @ stk; E
+    {{{ RET #(); dst ↦∗ vsrc }}}.
+  Proof.
+    iIntros (? ? Φ) "H HΦ". iApply (twp_wp_step with "HΦ").
+    iApply (twp_array_copy_to with "H"); [auto..|]; iIntros "H HΦ". by iApply "HΦ".
+  Qed.
+
+  Lemma twp_array_clone_persistent stk E l vl n :
+    Z.of_nat (length vl) = n → (0 < n)%Z →
+      [[{ l ↦∗□ vl }]]
+        array_clone #l #n @ stk; E
+      [[{ l', RET #l'; l' ↦∗ vl }]].
+  Proof.
+    iIntros (Hvl Hn Φ) "Hvl HΦ".
+    wp_lam.
+    wp_alloc dst as "Hdst"; first by auto.
+    wp_smart_apply (twp_array_copy_to with "[$Hdst $Hvl]") as "Hdst".
+    - rewrite length_replicate Z2Nat.id; lia.
+    - auto.
+    - wp_pures.
+      iApply "HΦ". by iFrame.
+  Qed.
+
+  Lemma wp_array_clone_persistent stk E l vl n :
+    Z.of_nat (length vl) = n →
+    (0 < n)%Z →
+    {{{ l ↦∗□ vl }}}
+      array_clone #l #n @ stk; E
+    {{{ l', RET #l'; l' ↦∗ vl }}}.
+  Proof.
+    iIntros (? ? Φ) "H HΦ". iApply (twp_wp_step with "HΦ").
+    iApply (twp_array_clone with "H"); [auto..|]; iIntros (l') "H HΦ". by iApply "HΦ".
+  Qed.
+
   Lemma read'_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (n : nat) :
     n > 0 →
       inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
@@ -1002,7 +1056,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
     wp_bind (! _)%E.
-    iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
     wp_load.
     destruct (Nat.even ver) eqn:Heven.
     - iDestruct "Hlock" as "(Hγᵢ & Hγᵥ & %Hunlocked & Hcache)".
@@ -1025,7 +1079,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons)".
       wp_pures.
       wp_bind (! _)%E.
-      iInv cached_wfN as "(%ver' & %log' & %actual' & %cache' & %valid' & %backup₁ & %backup₁' & %requests' & %index' & >Hver & >Hbackup & >Hγ & >%Hindex' & >%Hvalidated' & >Hregistry & Hreginv & >%Hlenactual' & >%Hlencache' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log' & %actual' & %cache' & %valid' & %backup₁ & %backup₁' & %requests' & %index' & >Hver & >Hbackup & >Hγ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >Hregistry & Hreginv & >%Hlenactual' & >%Hlencache' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & Hlock)" "Hcl".
       wp_load.
       iMod "AU" as (vs') "[Hγ' [_ Hconsume]]".
       iCombine "Hγ Hγ'" gives %[_ <-].
@@ -1069,7 +1123,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iModIntro.
           wp_pures.
           wp_bind (! _)%E.
-          iInv cached_wfN as "(%ver' & %log'' & %actual'' & %cache' & %valid' & %backup₂ & %backup₂' & %requests'' & %index'' & >Hver & >Hbackup & >Hγ & >%Hindex'' & >%Hvalidated'' & >Hregistry & Hreginv & >%Hlenactual'' & >%Hlencache'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & Hlock)" "Hcl".
+          iInv cached_wfN as "(%ver' & %log'' & %actual'' & %cache' & %valid' & %backup₂ & %backup₂' & %requests'' & %index'' & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >Hregistry & Hreginv & >%Hlenactual'' & >%Hlencache'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & Hlock)" "Hcl".
           wp_load.
           iMod ("Hcl" with "[-HΦ Hdst]") as "_".
           { iExists ver', log'', actual'', cache', valid', backup₂, backup₂', requests'', index''.
@@ -1087,7 +1141,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             { unfold not. intros. simplify_eq. }
             simpl. wp_pures.
             wp_bind (array_clone _ _).
-            wp_apply (wp_array_clone with "Hdst"). 
+            wp_apply (wp_array_clone with "[]"). 
             iApply ((wp_array_clone with "Hdst")).
             wp_smart_apply (wp_array_clone with "Hdst").
 
