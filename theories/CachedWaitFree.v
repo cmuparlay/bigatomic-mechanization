@@ -320,6 +320,15 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     done. 
   Qed.
 
+  Lemma log_points_to_singleton l γ value n :
+    log_points_to n {[ l := (γ, value) ]} ⊣⊢ token γ ∗ ⌜length value = n⌝.
+  Proof.
+    iSplit.
+    - iIntros "Hlog". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, value), token γ ∗ ⌜length value = n⌝)%I l (γ, value) with "Hlog").
+    - iIntros "[Htok %Hlen]". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, value), token γ ∗ ⌜length value = n⌝)%I l (γ, value) with "[-]").
+      { iFrame "% ∗". }
+  Qed.
+
   Definition request_inv γ γₗ γₑ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
     ⌜lexp ∈ used⌝ ∗
     ghost_var γₗ (1/2) (bool_decide (lactual = lexp)) ∗
@@ -493,11 +502,11 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
                   (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
-                    ∃ l vs,
+                    ∃ l γₜ vs,
                       (* Version [i] is associated with backup [l] *)
                       index_frag_own γᵢ (Nat.div2 ver') l ∗
                       (* Location [l] is associated with value [vs] *)
-                      log_frag_own γₕ l vs ∗
+                      log_frag_own γₕ l γₜ vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
                       ⌜vs !! (i + j)%nat = Some v⌝)) }}}.
   Proof.
@@ -520,7 +529,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
       destruct (Nat.even ver') eqn:Heven.
       + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache)".
         wp_apply (wp_load_offset with "Hcache").
@@ -529,13 +538,16 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         { by rewrite last_lookup Hlenᵢ /= in Hindex. }
         (* apply Forall_lookup_1 with (i := Nat.div2 ver') (x := l) in Hrange as Hldom; last done. *)
         (* apply elem_of_dom in Hldom as [value Hvalue]. *)
-        iMod (log_frag_alloc backup' cache with "●Hlog") as "[●Hlog #◯Hlog]".
+        rewrite -lookup_fmap lookup_fmap_Some in Hbackup.
+        destruct Hbackup as ([γₜ vs] & <- & Hlookup).
+        iMod (log_frag_alloc backup' γₜ vs with "●Hlog") as "[●Hlog #◯Hlog]".
         { done. }
         iIntros "Hsrc".
         iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
         iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
         iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iFrame "∗ # %". rewrite Heven. iFrame "∗ %". }
+        { iFrame "∗ # %". rewrite Heven. iFrame "∗ %". iIntros "!> !%".
+          rewrite -lookup_fmap lookup_fmap_Some. eauto. }
         iModIntro.
         wp_store.
         wp_pures.
@@ -563,7 +575,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             iExists backup', _.
             iFrame "∗ # %".
             rewrite Nat.add_0_r.
-            by rewrite <- list_lookup_lookup_total_lt by lia.
+            rewrite list_lookup_lookup_total_lt; first done.
+            simpl in *. lia.
           - rewrite big_sepL2_mono; first done.
             iIntros (k ver''' v') "_ _ H".
             rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
@@ -606,7 +619,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
   Qed.
 
-  Lemma log_auth_auth_agree γₕ p q (log log' : gmap loc (list val)) :
+  Lemma log_auth_auth_agree γₕ p q (log log' : gmap loc (gname * list val)) :
     log_auth_own γₕ p log -∗
       log_auth_own γₕ q log'  -∗
         ⌜log = log'⌝.
@@ -642,11 +655,11 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
                   (⌜Nat.Even ver'⌝ →
                   (* Then there exists some list of values associated with that version *)
-                    ∃ l vs,
+                    ∃ l γₜ vs,
                       (* Version [i] is associated with backup [l] *)
                       index_frag_own γᵢ (Nat.div2 ver') l ∗
                       (* Location [l] is associated with value [vs] *)
-                      log_frag_own γₕ l vs ∗
+                      log_frag_own γₕ l γₜ vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
                       ⌜vs !! i = Some v⌝ ))}}}.
   Proof.
@@ -681,11 +694,11 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
                   (* If the version is even, then the value read then was valid, as the lock was unlocked *)
                   (⌜Nat.Even ver'⌝ →
                     (* Then there exists some list of values associated with that version *)
-                    ∃ l vs,
+                    ∃ l γₜ vs,
                       (* Version [i] is associated with backup [l] *)
                       index_frag_own γᵢ (Nat.div2 ver') l ∗
                       (* Location [l] is associated with value [vs] *)
-                      log_frag_own γₕ l vs ∗
+                      log_frag_own γₕ l γₜ vs ∗
                       (* Where the value stored at index [i + j] is exactly [v] *)
                       ⌜vs !! i = Some v⌝)) }}}.
   Proof.
@@ -751,7 +764,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & >Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
       assert (i < length cache) as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
       + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache) /=".
@@ -860,21 +873,22 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iMod (mono_nat_own_alloc 0) as "(%γᵥ & Hγᵥ & _)".
     iMod (own_alloc (● map_seq O (to_agree <$> [backup]))) as "[%γᵢ Hγᵢ]".
     { by apply auth_auth_valid, singleton_valid. }
-    iMod (own_alloc (● {[ backup := to_agree vs ]})) as "[%γₕ Hγₕ]".
+    iMod token_alloc as "[%γₜ Hγₜ]".
+    iMod (own_alloc (● {[ backup := to_agree (γₜ, vs) ]})) as "[%γₕ Hγₕ]".
     { by apply auth_auth_valid, singleton_valid. }
     rewrite -map_fmap_singleton.
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) with "[Hbackup $Hvalidated Hversion $Hγ' Hγᵥ Hγₕ $Hγᵣ Hγᵢ Hcache]") as "#Hinv".
+    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) with "[Hbackup $Hvalidated Hversion $Hγ' Hγᵥ Hγₕ $Hγᵣ Hγᵢ Hcache Hγₜ]") as "#Hinv".
     { rewrite /cached_wf_inv /registry_inv.
-      iExists O, ({[backup := vs]}), vs, backup, [backup]. simpl. iFrame "∗ %".
+      iExists O, ({[backup := (γₜ, vs) ]}), vs, backup, [backup]. simpl. iFrame "∗ %".
       iSplit; first done.
       iNext. iSplit.
       { iPureIntro. split.
         { rewrite -Nat.even_spec /= //. }
         { auto. } }
-      iSplitL "Hbackup".
-      { iFrame. rewrite /log_points_to /= big_sepM_singleton. by iFrame. }
+      iSplitL "Hγₜ".
+      { rewrite log_points_to_singleton. by iFrame. }
       iSplit.
       { by rewrite lookup_singleton. }
       iSplit.
@@ -953,9 +967,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
         <<{ ∀∀ vs, value γ vs  }>> 
           read' n #l @ ↑N
-        <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat), value γ vs | 
+        <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat) (γₜ : gname), value γ vs | 
             RET (#copy, (#valid, #backup), #ver)%V; 
-            copy ↦∗ vs ∗ log_frag_own γₕ backup vs ∗ if valid then index_frag_own γᵢ (Nat.div2 ver) backup else True }>>.
+            copy ↦∗ vs ∗ log_frag_own γₕ backup γₜ vs ∗ if valid then index_frag_own γᵢ (Nat.div2 ver) backup else True }>>.
   Proof.
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
