@@ -1137,18 +1137,15 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           { lia. }
           { lia. }
           iIntros (l') "_".
-          wp_pures.
-          wp_bind (Resolve _ _ _).
-          wp_apply (wp_resolve with "Hproph").
-          { done. }
-          wp_pures.
-          iModIntro.
-          iIntros (pvs' ->) "Hproph //". }
-        case_bool_decide
-
-          
-        }
-      
+          wp_smart_apply (wp_resolve_proph with "Hproph").
+          iIntros (pvs') "[-> _] //". }
+        { wp_pures.
+          wp_apply (wp_array_clone_persistent with "□Hbackup₁").
+          { lia. }
+          { lia. }
+          iIntros (l') "Hl'".
+          wp_smart_apply (wp_resolve_proph with "Hproph").
+          iIntros (pvs') "[-> _] //". } }
       iMod "AU" as (vs') "[Hγ' [_ Hconsume]]".
       iCombine "Hγ Hγ'" gives %[_ <-].
       destruct valid'.
