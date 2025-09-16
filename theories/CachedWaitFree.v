@@ -52,14 +52,14 @@ Definition array_equal : val :=
 Definition cas (n : nat) : val :=
   λ: "l" "expected" "desired",
     let: "old" := read' n "l" in
-    if: array_equal (Fst (Fst "old")) "expected" then 
-      if: array_equal "expected" "desired" then #true
+    if: array_equal (Fst (Fst "old")) "expected" #n then 
+      if: array_equal "expected" "desired" #n then #true
       else
         let: "backup'" := (#false, array_clone "desired" #n) in
         let: "backup" := (Snd (Fst "old")) in
-        if: CAS ("l" +ₗ #1) "backup" "backup'" || CAS ("l" +ₗ #1) (#true, Snd "backup") "backup'" then
+        if: (CAS ("l" +ₗ #1) "backup" "backup'") || (CAS ("l" +ₗ #1) (#true, Snd "backup") "backup'") then
           let: "ver" := Snd "old" in
-          if: "ver" `rem` #2 = #0 && CAS "l" "ver" (#1 + "ver") then
+          if: ("ver" `rem` #2 = #0) && (CAS "l" "ver" (#1 + "ver")) then
             (* Lock was successful *)
             (* Perform update *)
             array_copy_to ("l" +ₗ #2) "desired" #n;;
@@ -1080,7 +1080,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           read' n #l @ ↑N
         <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat) (γₜ : gname), value γ vs | 
             RET (#copy, (#valid, #backup), #ver)%V; 
-            copy ↦∗ vs ∗ log_frag_own γₕ backup γₜ vs ∗ mono_nat_lb_own γᵥ ver ∗ if valid then ∃ ver', mono_nat_lb_own γᵥ ver' ∗ ⌜ver ≤ ver'⌝ ∗ index_frag_own γᵢ (Nat.div2 ver') backup else True }>>.
+            copy ↦∗ vs ∗ ⌜length vs = n⌝ ∗ log_frag_own γₕ backup γₜ vs ∗ mono_nat_lb_own γᵥ ver ∗ if valid then ∃ ver', mono_nat_lb_own γᵥ ver' ∗ ⌜ver ≤ ver'⌝ ∗ index_frag_own γᵢ (Nat.div2 ver') backup else True }>>.
   Proof.
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
@@ -1388,16 +1388,134 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iFrame "# %".
   Qed.
 
-  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) (n : nat) :
-    n > 0 →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
+  Require Import iris.bi.lib.atomic.
+
+  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
+    length expected > 0 → length expected = length desired →
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l (length expected)) -∗
         lexp ↦∗{dq} expected -∗
           ldes ↦∗{dq'} desired -∗
             <<{ ∀∀ actual, value γ actual  }>> 
-              cas n #l #lexp #ldes @ ↑N
+              cas (length expected) #l #lexp #ldes @ ↑N
             <<{ if bool_decide (actual = expected) then value γ desired else value γ actual |
-                RET #(bool_decide (actual = expected)); lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired }>>.
+                RET #(bool_decide (actual = expected)); lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired }>>.
   Proof.
+    iIntros (Hpos Hleneq) "#Hinv Hlexp Hldes %Φ AU". 
+    wp_rec.
+    wp_pures.
+    awp_apply (read'_spec with "[//]").
+    { done. }
+    rewrite /atomic_acc /=.
+    iMod "AU" as (actual) "[Hγ Hlin]".
+    iExists actual.
+    iFrame "Hγ".
+    iModIntro.
+    iSplit.
+    { iIntros "Hγ".
+      iDestruct "Hlin" as "[Hclose _]".
+      iMod ("Hclose" with "Hγ") as "AU".
+      by iFrame. }
+    iIntros (valid copy backup ver γₜ) "Hγ".
+    destruct (decide (actual = expected)) as [-> | Hne]; first last.
+    { iDestruct "Hlin" as "[_ Hconsume]".
+      rewrite bool_decide_eq_false_2; last done.
+      iMod ("Hconsume" with "Hγ") as "HΦ".
+      iModIntro. iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
+      wp_pures.
+      rewrite -Hcopylen.
+      wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
+      { done. }
+      { admit. }
+      iIntros "[Hcopy Hlexp]".
+      rewrite bool_decide_eq_false_2; last done.
+      wp_pures. iApply ("HΦ" with "[$]"). }
+    destruct (decide (expected = desired)) as [-> | Hne].
+    { iDestruct "Hlin" as "[_ Hconsume]".
+      rewrite bool_decide_eq_true_2; last done.
+      iMod ("Hconsume" with "Hγ") as "HΦ".
+      iModIntro. iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
+      wp_pures.
+      wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
+      { done. }
+      { admit. }
+      iIntros "[Hcopy Hlexp]".
+      rewrite bool_decide_eq_true_2; last done.
+      wp_pures.
+      wp_apply (wp_array_equal with "[$Hlexp $Hldes]").
+      { done. }
+      { admit. }
+      iIntros "[Hlexp Hldes]".
+      rewrite bool_decide_eq_true_2; last done.
+      wp_pures.
+      iApply ("HΦ" with "[$]"). }
+
+
+      
+      iIntros "H". iFrame ""
+
+      iFrame "Hγ".
+      iModIntro.
+      iSplit.
+      - iIntros "Hγ".
+        rewrite bool_decide_eq_false_2; last done.
+        iMod ("Hconsume" with "Hγ") as "HΦ".
+        iModIntro.
+        iFrame.
+        iAuIntro.
+        rewrite /atomic_acc.
+        iApply fupd_mask_intro.
+        { solve_ndisj. }
+
+    iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ)".
+    -
+    destruct (decide (actual = expected)) as [-> | Hne]; first last.
+    { iDestruct "Hlin" as "[_ Hconsume]".
+      iFrame "Hγ".
+      iModIntro.
+      iSplit.
+      - iIntros "Hγ".
+        rewrite bool_decide_eq_false_2; last done.
+        iMod ("Hconsume" with "Hγ") as "HΦ".
+        iModIntro.
+        iFrame.
+        iAuIntro.
+        rewrite /atomic_acc.
+        iApply fupd_mask_intro.
+        { solve_ndisj. }
+
+        
+
+        }
+
+    iModIntro. iExists actual.
+    iFrame "Hγ". iSplit.
+    { by iFrame. }
+    iIntros (valid copy backup ver γₜ) "Hγ".
+    destruct (decide (actual = expected)) as [-> | Hne]; first last.
+    {  }
+    - destruct (decide (expected = desired)) as [-> | Hne].
+
+    iMod ("Hclose" with "Hγ") as "AU".
+    iIntros "!> (Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ)".
+    wp_pures.
+    rewrite -Hcopylen.
+    wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
+    { done. }
+    { admit. }
+    iIntros "[Hcopy Hlexp]".
+    destruct (decide (actual = expected)) as [-> | Hne].
+    - rewrite bool_decide_eq_true_2; last done.
+      wp_pures.
+      wp_apply (wp_array_equal with "[$Hlexp $Hldes]").
+      { done. }
+      { admit. }
+      iIntros "[Hlexp Hldes]".
+      destruct (decide (expected = desired)) as [-> | Hne].
+      + wp_pures.
+        rewrite bool_decide_eq_true_2; last done.
+        wp_pures.
+    iModIntro.
+
   Admitted.
 
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
