@@ -1388,6 +1388,18 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iFrame "# %".
   Qed.
 
+  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) (n : nat) :
+    n > 0 →
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
+        lexp ↦∗{dq} expected -∗
+          ldes ↦∗{dq'} desired -∗
+            <<{ ∀∀ actual, value γ actual  }>> 
+              cas n #l #lexp #ldes @ ↑N
+            <<{ if bool_decide (actual = expected) then value γ desired else value γ actual |
+                RET #(bool_decide (actual = expected)); lexp ↦∗{dq} expected -∗ ldes ↦∗{dq'} desired }>>.
+  Proof.
+  Admitted.
+
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
     is_cached_wf v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
