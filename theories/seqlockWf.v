@@ -831,7 +831,7 @@ Section seqlock.
     is_seqlock v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
         <<{ ∀∀ vs, value γ vs  }>> 
-          write (length vs') v #src @ ↑N
+          write (length vs') v #src @ ∅
         <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
     iIntros "(%dst & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".

@@ -1077,7 +1077,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     n > 0 →
       inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
         <<{ ∀∀ vs, value γ vs  }>> 
-          read' n #l @ ↑N
+          read' n #l @ ↑cached_wfN
         <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat) (γₜ : gname), value γ vs | 
             RET (#copy, (#valid, #backup), #ver)%V; 
             copy ↦∗ vs ∗ ⌜length vs = n⌝ ∗ log_frag_own γₕ backup γₜ vs ∗ mono_nat_lb_own γᵥ ver ∗ if valid then ∃ ver', mono_nat_lb_own γᵥ ver' ∗ ⌜ver ≤ ver'⌝ ∗ index_frag_own γᵢ (Nat.div2 ver') backup else True }>>.
@@ -1469,6 +1469,13 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     { lia. }
     iIntros (l') "[Hl' Hldes]".
     wp_pures.
+    wp_bind (CmpXchg _ _ _).
+    iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+
+    iMod (registry_update with "Hregistry") as "[Hregistry Hregistered]".
+    { }
+
+
 
     
 
