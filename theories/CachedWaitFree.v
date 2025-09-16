@@ -1448,6 +1448,29 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       rewrite bool_decide_eq_true_2; last done.
       wp_pures.
       iApply ("HΦ" with "[$]"). }
+    iDestruct "Hlin" as "[Hclose _]".
+    iMod ("Hclose" with "Hγ") as "AU".
+    iIntros "!> (Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ)".
+    wp_pures.
+    wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
+    { done. }
+    { admit. }
+    iIntros "[Hcopy Hlexp]".
+    rewrite bool_decide_eq_true_2; last done.
+    wp_pures.
+    wp_apply (wp_array_equal with "[$Hlexp $Hldes]").
+    { done. }
+    { admit. }
+    iIntros "[Hlexp Hldes]".
+    rewrite bool_decide_eq_false_2; last done.
+    wp_pures.
+    wp_apply (wp_array_clone with "Hldes").
+    { lia. }
+    { lia. }
+    iIntros (l') "[Hl' Hldes]".
+    wp_pures.
+
+    
 
 
       
