@@ -145,7 +145,9 @@ Section cached_wf.
 
   Definition cached_wfN := N .@ "cached_wf".
 
-  Definition casN := N .@ "write".
+  Definition casN := N .@ "cas".
+
+  Definition readN := N .@ "read".
 
   Definition index_auth_own γᵢ (q : Qp) (index : list loc) := own γᵢ (●{#q} map_seq 0 (to_agree <$> index)).
 
@@ -391,7 +393,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     registry_inv γ lactual actual requests (dom log)
     (* We can take frame-preserving updated that linearize the successful CAS,
        alongside all of the other failing CAS's *)
-    ={⊤ ∖ ↑cached_wfN}=∗
+    ={⊤ ∖ ↑cached_wfN ∖ ↑readN}=∗
       (* Points-to predicate of every previously logged backup *)
       log_points_to (length actual) log ∗
       (* Return ownership of token *)
@@ -455,14 +457,14 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         done.
   Qed.
 
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
-    ∃ (ver : nat) (log : gmap loc (gname * list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) requests (index : list loc),
+  Definition read_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
+    ∃ (ver : nat) (log : gmap loc (gname * list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) (index : list loc),
       (* Physical state of version *)
       l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
       (l +ₗ 1) ↦ (#valid, #backup)%V ∗
       (* Half ownership of logical state *)
-      ghost_var γ (1/2) actual ∗
+      ghost_var γ (1/4) actual ∗
       (* Shared read ownerhip of backup *)
       backup ↦∗□ actual ∗
       (* The most recent version is associated with some other backup pointer *)
@@ -470,9 +472,6 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* If the backup is validated, then the cache is unlocked, the logical state is equal to the cache,
          and the backup pointer corresponding to the most recent version is up to date *)
       ⌜if valid then Nat.Even ver ∧ actual = cache ∧ backup = backup' else True⌝ ∗
-      registry γᵣ requests ∗
-      (* State of request registry *)
-      registry_inv γ (l +ₗ 1) actual requests (dom log) ∗
       (* Big atomic is of fixed size *)
       ⌜length actual = len⌝ ∗ 
       ⌜length cache = len⌝ ∗
@@ -481,8 +480,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       log_points_to (length actual) log ∗
       (* The last item in the log corresponds to the currently installed backup pointer *)
       ⌜snd <$> log !! backup = Some actual⌝ ∗
-      (* Store full authoritative ownership of the log in the invariant *)
-      log_auth_own γₕ 1 log ∗
+      (* Store half authoritative ownership of the log in the read invariant *)
+      log_auth_own γₕ (1/2) log ∗
       (* The is a mapping in the index for every version *)
       ⌜length index = S (Nat.div2 ver)⌝ ∗
       (* Because the mapping from versions to log entries is injective, the index should not contain duplicates *)
@@ -490,14 +489,31 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* Moreover, every index should be less than the length of the log (to ensure every version
          corresponds to a valid entry) *)
       ⌜Forall (λ l, l ∈ dom log) index⌝ ∗
+      (* Ownership of at least half of the index *)
+      index_auth_own γᵢ (1/2) index ∗
+      (* Ownership of at least half of the counter *)
+      mono_nat_auth_own γᵥ (1/2) ver ∗
+      (* Ownership of at least half of the physical state of the cache *)
+      (l +ₗ 2) ↦∗{# 1/2} cache ∗
       if Nat.even ver then 
         (* If sequence number is even, then unlocked *)
         (* Full ownership of points-to pred in invariant *)
         (* And the logical state consistent with physical state *)
-        index_auth_own γᵢ 1 index ∗ mono_nat_auth_own γᵥ 1 ver ∗ ⌜snd <$> log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗ cache
+        index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ ⌜snd <$> log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗{# 1/2} cache
       else 
         (* If locked, have only read-only access to ensure one updater *)
-        index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ (l +ₗ 2) ↦∗{# 1/2} cache ∗ ⌜valid = false⌝.
+        ⌜valid = false⌝.
+
+  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
+    ∃ log (actual : list val) requests,
+      (* Own other half of log in top-level invariant *)
+      log_auth_own γₕ (1/2) log ∗
+      (* Other 1/4 of logical state in top-level invariant *)
+      ghost_var γ (1/4) actual ∗
+      (* Ownership of request registry *)
+      registry γᵣ requests ∗
+      (* State of request registry *)
+      registry_inv γ (l +ₗ 1) actual requests (dom log).
 
   Global Instance pointsto_array_persistent l vs : Persistent (l ↦∗□ vs).
   Proof.
@@ -514,7 +530,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
@@ -560,7 +576,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      iInv readN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
       destruct (Nat.even ver') eqn:Heven.
       + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache)".
         wp_apply (wp_load_offset with "Hcache").
