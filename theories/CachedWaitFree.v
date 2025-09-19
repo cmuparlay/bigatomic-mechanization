@@ -257,8 +257,8 @@ Section cached_wf.
     rewrite -lookup_fmap /= Hvs'' //.
   Qed.
 
-Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) : 
-    index_auth_own γ 1 index -∗
+Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) (q : Qp) : 
+    index_auth_own γ q index -∗
       index_frag_own γ i l -∗
         ⌜index !! i = Some l⌝.
   Proof.
@@ -534,6 +534,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       by iFrame "#".
   Qed.
 
+  Lemma backup_logged `{Countable K} {V} (log : gmap K V) (index : list K) (backup' : K) : Forall (.∈ dom log) index → last index = Some backup' → is_Some (log !! backup').
+  Proof.
+    rewrite Forall_lookup last_lookup.
+    intros Hrange Hindex.
+    by eapply elem_of_dom, Hrange.
+  Qed.
 
   Lemma wp_array_copy_to' γ γᵥ γₕ γᵢ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
@@ -592,12 +598,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iIntros "Hsrc".
       iPoseProof (mono_nat_lb_own_valid with "●Hγᵥ Hlb") as "[%Ha %Hord]".
       iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb'".
-      pose proof Hindex as Hindexlookup.
-      rewrite last_lookup Hlenᵢ /= in Hindexlookup.
-      pose proof (Forall_lookup_1 _ _ (Nat.div2 ver') backup' Hrange Hindexlookup) as Hbackup'logged.
-      simpl in *.
-      rewrite elem_of_dom in Hbackup'logged.
-      destruct Hbackup'logged as [[γₜ backup'vs] Hbackup'vs].
+      eapply backup_logged in Hrange as Hbackup_logged; last done.
+      destruct Hbackup_logged as [[γₜ backup'vs] Hbackup'vs].
       iMod (log_frag_alloc backup' with "●Hlog") as "[●Hlog #◯Hlog]".
       { done. }
       iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
@@ -1082,11 +1084,11 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iApply (twp_array_clone_persistent with "H"); [auto..|]; iIntros (l') "H HΦ". by iApply "HΦ".
   Qed.
 
-  Lemma read'_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (n : nat) :
+  Lemma read'_spec (γ γᵥ γₕ γᵢ : gname) (l : loc) (n : nat) :
     n > 0 →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ l n) -∗
         <<{ ∀∀ vs, value γ vs  }>> 
-          read' n #l @ ↑cached_wfN
+          read' n #l @ ↑readN
         <<{ ∃∃ (valid : bool) (copy backup : loc) (ver : nat) (γₜ : gname), value γ vs | 
             RET (#copy, (#valid, #backup), #ver)%V; 
             copy ↦∗ vs ∗ ⌜length vs = n⌝ ∗ log_frag_own γₕ backup γₜ vs ∗ mono_nat_lb_own γᵥ ver ∗ if valid then ∃ ver', mono_nat_lb_own γᵥ ver' ∗ ⌜ver ≤ ver'⌝ ∗ index_frag_own γᵢ (Nat.div2 ver') backup else True }>>.
@@ -1094,6 +1096,66 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
     wp_bind (! _)%E.
+    iInv readN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
+    wp_load.
+    iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb".
+    eapply backup_logged in Hrange as Hbackup_logged; last done.
+    destruct Hbackup_logged as [[γₜ backup'vs] Hbackup'vs].
+    iMod (log_frag_alloc backup' with "●Hlog") as "[●Hlog #◯Hlog]".
+    { eassumption. }
+    iMod (index_frag_alloc with "●Hγᵢ") as "[●Hindex #◯Hindex]".
+    { by rewrite last_lookup Hlenᵢ /= in Hindex. }
+    iMod ("Hcl" with "[-AU]") as "_".
+    { rewrite /cached_wf_inv.
+      iExists ver, log, actual, cache, valid, backup, backup', index.
+      iFrame "∗ # %". }
+    iModIntro.
+    wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
+    { done. }
+    iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & Hcons) /=".
+    wp_pures.
+    wp_bind (! _)%E.
+    iInv readN as "(%ver' & %log' & %actual' & %cache' & %valid' & %backup₁ & %backup₁' & %index' & >Hver & >Hbackup & >Hγ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock)" "Hcl".
+    wp_load.
+    iMod "AU" as (vs') "[Hγ' [_ Hconsume]]".
+    iMod ("Hconsume" $! valid' dst backup₁ ver γₜ with "Hγ'") as "HΦ".
+    iPoseProof (log_auth_frag_agree with "●Hlog ◯Hlog") as "%Hlookup".
+    iDestruct (index_auth_frag_agree with "●Hγᵢ ◯Hindex") as "%H".
+    iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+    { rewrite /cached_wf_inv.
+      iExists ver', log', actual', cache', valid', backup₁, backup₁', index'.
+      iFrame "∗ # %". }
+    iModIntro.
+    wp_pures.
+    destruct valid'.
+    - wp_pures.
+      wp_bind (! _)%E.
+      iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %valid'' & %backup₂ & %backup₂' & %index'' & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock)" "Hcl".
+      wp_load.
+      iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+      { rewrite /cached_wf_inv.
+        iExists ver'', log'', actual'', cache'', valid'', backup₂, backup₂', index''.
+        iFrame "∗ # %". }
+      iModIntro.
+      wp_pures.
+      destruct (decide (ver'' = ver)) as [-> | Hne].
+      + rewrite bool_decide_eq_true_2; last done.
+        wp_pures.
+        iApply "HΦ".
+        destruct Hvalidated' as (HEven' & <- & <-).
+        apply Nat.even_spec in HEven' as Heven'.
+        rewrite Heven' in Hcons'.
+          rewrite Heven'. iDestruct "Hlock" as "(●Hγᵢ & Hγᵥ & %Hcons₁ & Hcache)
+
+
+
+
+
+    
+
+
+
+
     iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
     wp_load.
     (* Consider whether initial version is even *)
