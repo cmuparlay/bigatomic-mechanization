@@ -325,13 +325,21 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     ∨ (£ 1 ∗ AU_cas Φ γ expected desired lexp ldes dq dq' ∗ ghost_var γₑ (1/2) true ∗ ghost_var γₗ (1/2) true)
     ∨ (token γₜ ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
-  Definition log_points_to (n : nat) (log : gmap loc (gname * list val)) : iProp Σ :=
-    ([∗ map] _ ↦ '(γ, value) ∈ log, token γ ∗ ⌜length value = n⌝)%I.
+  Definition log_tokens (log : gmap loc (gname * list val)) : iProp Σ :=
+    ([∗ map] _ ↦ '(γ, _) ∈ log, token γ)%I.
 
-  Lemma log_points_to_impl log l γ value n :
-    log !! l = Some (γ, value) →
-    log_points_to n log -∗
-    token γ ∗ ⌜length value = n⌝.
+  (* Lemma log_tokens_impl log l γ :
+    fst <$> log !! l = Some γ → log_tokens log -∗ token γ.
+  Proof.
+    rewrite -lookup_fmap lookup_fmap_Some.
+    iIntros (([? values] & <- & Hbound)) "Hlog".
+    iPoseProof (big_sepM_lookup with "Hlog") as "H /=".
+    { done. }
+    done. 
+  Qed. *)
+
+  Lemma log_tokens_impl log l γ value :
+    log !! l = Some (γ, value) → log_tokens log -∗ token γ.
   Proof.
     iIntros (Hbound) "Hlog".
     iPoseProof (big_sepM_lookup with "Hlog") as "H /=".
@@ -339,12 +347,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     done. 
   Qed.
 
-  Lemma log_points_to_singleton l γ value n :
-    log_points_to n {[ l := (γ, value) ]} ⊣⊢ token γ ∗ ⌜length value = n⌝.
+  Lemma log_tokens_singleton l γ value :
+    log_tokens {[ l := (γ, value) ]} ⊣⊢ token γ.
   Proof.
     iSplit.
-    - iIntros "Hlog". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, value), token γ ∗ ⌜length value = n⌝)%I l (γ, value) with "Hlog").
-    - iIntros "[Htok %Hlen]". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, value), token γ ∗ ⌜length value = n⌝)%I l (γ, value) with "[-]").
+    - iIntros "Hlog". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, _), token γ)%I l (γ, value) with "Hlog").
+    - iIntros "Htok". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, _), token γ)%I l (γ, value) with "[-]").
       { iFrame "% ∗". }
   Qed.
 
@@ -384,7 +392,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     (* The current backup pointer has been logged *)
     fst <$> log !! lactual' = Some γₜ →
     (* Points-to predicate of every previously logged backup *)
-    log_points_to (length actual) log -∗
+    log_tokens log -∗
     (* Physical state of backup *)
     token γₜ -∗
     (* The logical state has not yet been updated to the new state *)
@@ -395,7 +403,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
        alongside all of the other failing CAS's *)
     ={⊤ ∖ ↑cached_wfN ∖ ↑readN}=∗
       (* Points-to predicate of every previously logged backup *)
-      log_points_to (length actual) log ∗
+      log_tokens log ∗
       (* Return ownership of token *)
       token γₜ ∗
       (* Update new logical state to correspond to logical CAS *)
@@ -417,7 +425,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         { iLeft. iFrame. }
         destruct (decide (lactual' = lexp)) as [-> | Hneq].
         * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
-          iPoseProof (log_points_to_impl with "Hlog") as "[Hactual' %Hlen']".
+          iPoseProof (log_tokens_impl with "Hlog") as "Hactual'".
           { done. }
           rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
           destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
@@ -436,7 +444,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         rewrite (bool_decide_eq_false_2 (actual' = expected)); last done.
         destruct (decide (lactual' = lexp)) as [-> | Hdiff].
         * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
-          iPoseProof (log_points_to_impl with "Hlog") as "[Hactual' %Hlen']".
+          iPoseProof (log_tokens_impl with "Hlog") as "Hactual'".
           { done. }
           rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
           destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
@@ -457,7 +465,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         done.
   Qed.
 
-  Definition read_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
+  Definition read_inv (γ γᵥ γₕ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (log : gmap loc (gname * list val)) (actual cache : list val) (valid : bool) (backup backup' : loc) (index : list loc),
       (* Physical state of version *)
       l ↦ #ver ∗
@@ -475,9 +483,11 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* Big atomic is of fixed size *)
       ⌜length actual = len⌝ ∗ 
       ⌜length cache = len⌝ ∗
+      (* Every logged value is of correct length *)
+      ⌜map_Forall (λ _ '(_, value), length value = len) log⌝ ∗
       (* The version number is twice (or one greater than twice) than number of versions *)
       (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
-      log_points_to (length actual) log ∗
+      log_tokens log ∗
       (* The last item in the log corresponds to the currently installed backup pointer *)
       ⌜snd <$> log !! backup = Some actual⌝ ∗
       (* Store half authoritative ownership of the log in the read invariant *)
@@ -488,23 +498,20 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       ⌜NoDup index⌝ ∗
       (* Moreover, every index should be less than the length of the log (to ensure every version
          corresponds to a valid entry) *)
-      ⌜Forall (λ l, l ∈ dom log) index⌝ ∗
+      ⌜Forall (.∈ dom log) index⌝ ∗
       (* Ownership of at least half of the index *)
       index_auth_own γᵢ (1/2) index ∗
       (* Ownership of at least half of the counter *)
       mono_nat_auth_own γᵥ (1/2) ver ∗
       (* Ownership of at least half of the physical state of the cache *)
       (l +ₗ 2) ↦∗{# 1/2} cache ∗
-      if Nat.even ver then 
-        (* If sequence number is even, then unlocked *)
-        (* Full ownership of points-to pred in invariant *)
-        (* And the logical state consistent with physical state *)
-        index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗ ⌜snd <$> log !! backup' = Some cache⌝ ∗ (l +ₗ 2) ↦∗{# 1/2} cache
-      else 
-        (* If locked, have only read-only access to ensure one updater *)
-        ⌜valid = false⌝.
+      (* If the version is even, the the value of the backup corresponding to the 
+         stores the cache. Otherwise it must not be valid *)
+      ⌜if Nat.even ver then snd <$> log !! backup' = Some cache else valid = false⌝ ∗
+      (* If the version is even, we have full ownership of index and logical state of version *)
+      if Nat.even ver then index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
 
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
+  Definition cached_wf_inv (γ γₕ γᵣ : gname) (l : loc) : iProp Σ :=
     ∃ log (actual : list val) requests,
       (* Own other half of log in top-level invariant *)
       log_auth_own γₕ (1/2) log ∗
@@ -527,10 +534,11 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       by iFrame "#".
   Qed.
 
-  Lemma wp_array_copy_to' γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n i : nat) vdst ver :
+
+  Lemma wp_array_copy_to' γ γᵥ γₕ γᵢ (dst src : loc) (n i : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     i ≤ n → length vdst = n - i →
-      inv readN (read_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ (dst +ₗ i) ↦∗ vdst }}}
@@ -576,96 +584,63 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv readN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
-      destruct (Nat.even ver') eqn:Heven.
-      + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache)".
-        wp_apply (wp_load_offset with "Hcache").
-        { apply list_lookup_lookup_total_lt. lia. }
-        iMod (index_frag_alloc with "Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
-        { by rewrite last_lookup Hlenᵢ /= in Hindex. }
-        (* apply Forall_lookup_1 with (i := Nat.div2 ver') (x := l) in Hrange as Hldom; last done. *)
-        (* apply elem_of_dom in Hldom as [value Hvalue]. *)
-        rewrite -lookup_fmap lookup_fmap_Some in Hbackup.
-        destruct Hbackup as ([γₜ vs] & <- & Hlookup).
-        iMod (log_frag_alloc backup' γₜ vs with "●Hlog") as "[●Hlog #◯Hlog]".
-        { done. }
-        iIntros "Hsrc".
-        iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
-        iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
-        iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { rewrite /cached_wf_inv. simpl in *.
-          iExists ver', log, actual, vs, valid, backup, backup', requests, index.
-          iFrame "∗ # %". rewrite Heven. iFrame "∗ %". iIntros "!> !%".
-          rewrite -lookup_fmap lookup_fmap_Some. by exists (γₜ, vs). }
-        iModIntro.
-        wp_store.
-        wp_pures.
-        rewrite -Z.sub_add_distr.
-        do 2 rewrite Loc.add_assoc.
-        change 1%Z with (Z.of_nat 1).
-        rewrite -Nat2Z.inj_add Nat.add_1_r.
-        wp_apply ("IH" $! _ vdst ver' with "[] [] [$] [-] [//]").
-        { iPureIntro. lia. }
-        { iPureIntro. lia. }
-        iIntros (vers vdst') "!> (Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
-        iApply "HΦ".
-        replace (S i) with (i + 1) by lia.
-        rewrite Nat2Z.inj_add -Loc.add_assoc.
-        iCombine "Hhd Hdst" as "Hdst".
-        rewrite -array_cons.
-        iFrame. repeat iSplit.
-        { iIntros "!% /=". lia. }
-        { iPureIntro. by eapply SSorted_cons. }
-        { iPureIntro. constructor; first done.
-          eapply Forall_impl; eauto. lia. }
-        { simpl. iSplitR "Hcons".
-          - iSplitR; first done. 
-            iIntros "%Heven'".
-            iExists backup', _.
-            iFrame "∗ # %".
-            rewrite Nat.add_0_r.
-            rewrite list_lookup_lookup_total_lt; first done.
-            simpl in *. lia.
-          - rewrite big_sepL2_mono; first done.
-            iIntros (k ver''' v') "_ _ H".
-            rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
-      + iDestruct "Hlock" as ">(Hγₕ & Hγᵥ & Hsrc & Hinvalid)".
-        wp_apply (wp_load_offset with "Hsrc").
-        { apply list_lookup_lookup_total_lt. lia. }
-        iIntros "Hsrc".
-        iPoseProof (mono_nat_lb_own_valid with "Hγᵥ Hlb") as "[%Ha %Hord]".
-        iPoseProof (mono_nat_lb_own_get with "Hγᵥ") as "#Hlb'".
-        iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
-        { iExists ver', log, actual, cache, valid, backup, backup', requests, index. iFrame "∗ # %".
-          rewrite Heven. iFrame "∗ # %". }
-        iModIntro.
-        wp_store.
-        wp_pures.
-        rewrite -Z.sub_add_distr.
-        do 2 rewrite Loc.add_assoc.
-        change 1%Z with (Z.of_nat 1).
-        rewrite -Nat2Z.inj_add Nat.add_1_r.
-        wp_apply ("IH" $! _ vdst ver' with "[] [] [$] [-] [//]").
-        { iPureIntro. lia. }
-        { iPureIntro. lia. }
-        iIntros (vers vdst') "!> (Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
-        iApply "HΦ".
-        replace (S i) with (i + 1) by lia.
-        rewrite Nat2Z.inj_add -Loc.add_assoc.
-        iCombine "Hhd Hdst" as "Hdst".
-        rewrite -array_cons.
-        iFrame. repeat iSplit.
-        { iIntros "!% /=". lia. }
-        { iPureIntro. by eapply SSorted_cons. }
-        { iPureIntro. constructor; first done.
-          eapply Forall_impl; eauto. lia. }
-        { simpl. iSplitR "Hcons".
-          - rewrite -Nat.even_spec.
-            iSplitR; first done.
-            iIntros "%Heven'". congruence.
-          - rewrite big_sepL2_mono; first done.
-            iIntros (k ver''' v') "_ _ H".
-            rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
+      iInv readN as "(%ver' & %log & %actual & %cache & %valid & %backup & %backup' & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
+      wp_apply (wp_load_offset with "Hcache").
+      { apply list_lookup_lookup_total_lt. lia. }
+      iMod (index_frag_alloc with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
+      { by rewrite last_lookup Hlenᵢ /= in Hindex. }
+      iIntros "Hsrc".
+      iPoseProof (mono_nat_lb_own_valid with "●Hγᵥ Hlb") as "[%Ha %Hord]".
+      iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb'".
+      pose proof Hindex as Hindexlookup.
+      rewrite last_lookup Hlenᵢ /= in Hindexlookup.
+      pose proof (Forall_lookup_1 _ _ (Nat.div2 ver') backup' Hrange Hindexlookup) as Hbackup'logged.
+      simpl in *.
+      rewrite elem_of_dom in Hbackup'logged.
+      destruct Hbackup'logged as [[γₜ backup'vs] Hbackup'vs].
+      iMod (log_frag_alloc backup' with "●Hlog") as "[●Hlog #◯Hlog]".
+      { done. }
+      iMod ("Hcl" with "[-Hhd Htl HΦ]") as "_".
+      { iExists ver', log, actual, cache, valid, backup, backup', index. iFrame "∗ # %". }
+      iModIntro.
+      wp_store.
+      wp_pures.
+      rewrite -Z.sub_add_distr.
+      do 2 rewrite Loc.add_assoc.
+      change 1%Z with (Z.of_nat 1).
+      rewrite -Nat2Z.inj_add Nat.add_1_r.
+      wp_apply ("IH" $! _ vdst ver' with "[] [] [$] [-] [//]").
+      { iPureIntro. lia. }
+      { iPureIntro. lia. }
+      iIntros (vers vdst') "!> (Hdst & %Hlen & %Hsorted & %Hbound & Hcons)".
+      iApply "HΦ".
+      replace (S i) with (i + 1) by lia.
+      rewrite Nat2Z.inj_add -Loc.add_assoc.
+      iCombine "Hhd Hdst" as "Hdst".
+      rewrite -array_cons.
+      iFrame. repeat iSplit.
+      { iIntros "!% /=". lia. }
+      { iPureIntro. by eapply SSorted_cons. }
+      { iPureIntro. constructor; first done.
+        eapply Forall_impl; eauto. lia. }
+      { simpl. iSplitR "Hcons".
+        - rewrite -Nat.even_spec.
+          iSplitR; first done.
+          iIntros "%Heven'".
+          rewrite Heven' in Hcons.
+          iExists backup', _.
+          iFrame "∗ # %".
+          rewrite Nat.add_0_r.
+          rewrite list_lookup_lookup_total_lt.
+          * iPureIntro. do 2 f_equal.
+            rewrite -lookup_fmap lookup_fmap_Some in Hcons.
+            destruct Hcons as ([γₜ' vs] & Heq & Hlookup).
+            simpl in *. congruence.
+          * rewrite /map_Forall in Hloglen.
+            apply Hloglen in Hbackup'vs as ->. lia.
+        - rewrite big_sepL2_mono; first done.
+          iIntros (k ver''' v') "_ _ H".
+          rewrite -Nat.add_1_r -Nat.add_assoc Nat.add_1_r //.  }
   Qed.
 
   Lemma log_auth_auth_agree γₕ p q (log log' : gmap loc (gname * list val)) :
@@ -682,10 +657,10 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     repeat rewrite -lookup_fmap //.
   Qed.
 
-  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵣ γᵢ (dst src : loc) (n : nat) vdst ver :
+  Lemma wp_array_copy_to_wk γ γᵥ γₕ γᵢ (dst src : loc) (n : nat) vdst ver :
     (* Length of destination matches that of source (bigatomic) *)
     length vdst = n →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ dst ↦∗ vdst }}}
@@ -717,14 +692,14 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
      rewrite -(Loc.add_0 dst).
      replace (Z.of_nat n) with (n - 0)%Z by lia.
      change 0%Z with (Z.of_nat O).
-     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
+     wp_smart_apply (wp_array_copy_to' _ _ _ _ _ _ _ _ vdst _ with "[//] [//] [$] [-]"); try lia.
      iIntros "!> %vers %vdst' /=".
      rewrite Nat.sub_0_r //.
   Qed.
 
-  Lemma wp_array_clone_wk γ γᵥ γₕ γᵣ γᵢ (src : loc) (n : nat) ver :
+  Lemma wp_array_clone_wk γ γᵥ γₕ γᵢ (src : loc) (n : nat) ver :
     n > 0 →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ src n) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ src n) -∗
         (* The current version is at least [ver] *)
         mono_nat_lb_own γᵥ ver -∗
           {{{ True }}}
@@ -780,12 +755,23 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     - intros [k H]. exists (Z.to_nat k). lia.
   Qed.
 
-  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵣ γᵢ dst src (vs vs' : list val) i n dq :
+  (* Definition cached_wf_inv (γ γᵥ γₕ γᵣ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
+    ∃ log (actual : list val) requests,
+      (* Own other half of log in top-level invariant *)
+      log_auth_own γₕ (1/2) log ∗
+      (* Other 1/4 of logical state in top-level invariant *)
+      ghost_var γ (1/4) actual ∗
+      (* Ownership of request registry *)
+      registry γᵣ requests ∗
+      (* State of request registry *)
+      registry_inv γ (l +ₗ 1) actual requests (dom log). *)
+
+  Lemma wp_array_copy_to_half' γ γᵥ γₕ γᵢ dst src (vs vs' : list val) i n dq :
     i ≤ n → length vs = n - i → length vs = length vs' →
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ dst n) -∗
-          {{{ (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
-            array_copy_to #(dst +ₗ 2 +ₗ i) #(src +ₗ i) #(n - i)%nat
-          {{{ RET #(); (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
+        inv readN (read_inv γ γᵥ γₕ γᵢ dst n) -∗
+            {{{ (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs ∗ (src +ₗ i) ↦∗{dq} vs' }}}
+              array_copy_to #(dst +ₗ 2 +ₗ i) #(src +ₗ i) #(n - i)%nat
+            {{{ RET #(); (dst +ₗ 2 +ₗ i) ↦∗{#1 / 2} vs' ∗ (src +ₗ i) ↦∗{dq} vs' }}}.
   Proof.
     iIntros (Hle Hlen Hmatch) "#Hinv %Φ !> [Hdst Hsrc] HΦ".
     iLöb as "IH" forall (i vs vs' Hlen Hle Hmatch).
@@ -813,14 +799,15 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv cached_wfN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %requests & %index & >Hver & >Hbackup & >Hγ & □Hbackup & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+      iInv readN as "(%ver & %log & %actual & %cache & %valid & %backup & %backup' & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
       assert (i < length cache) as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
-      + iMod "Hlock" as "(Hγᵢ & Hγᵥ & %Hbackup & Hcache) /=".
+      + iMod "Hlock" as "(Hγᵢ' & Hγᵥ' & Hcache') /=".
+        iCombine "Hcache Hcache'" as "Hcache".
         iPoseProof (update_array _ _ _ i v'' with "Hcache") as "[Hcache _]".
         { done. }
         by iCombine "Hdst Hcache" gives %[Hfrac%dfrac_valid_own_r <-].
-      + iMod "Hlock" as "(Hγᵢ & Hγᵥ & Hcache & ->)".
+      + simplify_eq.
         iPoseProof (update_array _ _ _ i v'' with "Hcache") as "[Hcache Hacc]".
         { done. }
         iCombine "Hdst Hcache" as "Hcache".
@@ -829,11 +816,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         iDestruct "Hcache" as "[Hcache Hcache']".
         iPoseProof ("Hacc" with "Hcache") as "Hcache".
         (* $Hregistry $Hreginv $Hver Hγᵢ Hγᵥ Hcache *)
+        simplify_eq.
         iMod ("Hcl" with "[-Hcache' Hdst' Hsrc Hsrc' HΦ]") as "_".
-        { iExists ver, log, actual, (<[i:=v']> cache), false, backup, backup', requests, index.
+        { iExists ver, log, actual, (<[i:=v']> cache), false, backup, backup', index.
           iFrame "∗ # %".
           rewrite Heven. iFrame.
-          iNext. iSplit; last done.
+          iNext. repeat iSplit; try done.
           by rewrite length_insert. }
         iModIntro.
         wp_pures.
@@ -855,9 +843,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           by rewrite -Nat2Z.inj_add Nat.add_comm /=.
   Qed.
 
-  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵣ γᵢ dst src (vs vs' : list val) n dq :
+  Lemma wp_array_copy_to_half γ γᵥ γₕ γᵢ dst src (vs vs' : list val) n dq :
     length vs = n → length vs = length vs' →
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ dst n) -∗
+        inv readN (read_inv γ γᵥ γₕ γᵢ dst n) -∗
           {{{ (dst +ₗ 2) ↦∗{#1 / 2} vs ∗ src ↦∗{dq} vs' }}}
             array_copy_to #(dst +ₗ 2) #src #n
           {{{ RET #(); (dst +ₗ 2) ↦∗{#1 / 2} vs' ∗ src↦∗ {dq} vs' }}}.
@@ -867,7 +855,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     rewrite -(Loc.add_0 src).
     change 0%Z with (Z.of_nat 0).
     rewrite -{2}(Nat.sub_0_r n).
-    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
+    wp_apply (wp_array_copy_to_half' _ _ _ _ _ _ vs vs' with "[$] [$] [$]").
     - lia.
     - lia.
     - done.
@@ -892,7 +880,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
 
   Definition is_cached_wf (v : val) (γ : gname) (n : nat) : iProp Σ :=
     ∃ (dst : loc) (γₕ γᵥ γᵣ γᵢ : gname),
-      ⌜v = #dst⌝ ∗ inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ dst n).
+      ⌜v = #dst⌝ ∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ dst n) ∗
+      inv cached_wfN (cached_wf_inv γ γₕ γᵣ dst).
 
   Lemma array_persist l vs : l ↦∗ vs ==∗ l ↦∗□ vs.
   Proof.
@@ -928,42 +918,45 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     wp_smart_apply (wp_array_copy_to _ _ _ _ (replicate n #0) vs with "[$]").
     { by rewrite length_replicate. }
     { auto. }
-    iIntros "[Hcache Hsrc]". wp_pures.
-    iMod (ghost_var_alloc vs) as "(%γ & Hγ & Hγ')".
-    iMod (mono_nat_own_alloc 0) as "(%γᵥ & Hγᵥ & _)".
-    iMod (own_alloc (● map_seq O (to_agree <$> [backup]))) as "[%γᵢ Hγᵢ]".
+    iIntros "[[Hcache Hcache'] Hsrc]". wp_pures.
+    iMod (ghost_var_alloc vs) as "(%γ & Hγ & Hγ' & Hγ'')".
+    replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
+    iMod (mono_nat_own_alloc 0) as "(%γᵥ & [Hγᵥ Hγᵥ'] & _)".
+    iMod (own_alloc (● map_seq O (to_agree <$> [backup]))) as "(%γᵢ & Hγᵢ & Hγᵢ')".
     { by apply auth_auth_valid, singleton_valid. }
     iMod token_alloc as "[%γₜ Hγₜ]".
-    iMod (own_alloc (● {[ backup := to_agree (γₜ, vs) ]})) as "[%γₕ Hγₕ]".
+    iMod (own_alloc (● {[ backup := to_agree (γₜ, vs) ]})) as "(%γₕ & Hγₕ & Hγₕ')".
     { by apply auth_auth_valid, singleton_valid. }
     rewrite -map_fmap_singleton.
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
-    iMod (array_persist with "Hbackup") as "Hbackup".
-    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l n) with "[Hbackup $Hvalidated Hversion $Hγ' Hγᵥ Hγₕ $Hγᵣ Hγᵢ Hcache Hγₜ]") as "#Hinv".
-    { rewrite /cached_wf_inv /registry_inv.
-      iExists O, ({[backup := (γₜ, vs) ]}), vs, backup, [backup]. simpl. iFrame "∗ # %".
+    iMod (array_persist with "Hbackup") as "#Hbackup".
+    iMod (inv_alloc readN _ (read_inv γ γᵥ γₕ γᵢ l n) with "[$Hvalidated $Hγ' $Hγᵥ Hγᵥ' $Hγₕ Hγᵢ $Hγᵢ' $Hcache Hcache' Hγₜ $Hversion $Hbackup]") as "#Hreadinv".
+    { iExists backup. iFrame "∗ # %".
+      simpl.
       iSplit; first done.
       iNext. iSplit.
       { iPureIntro. split.
         { rewrite -Nat.even_spec /= //. }
         { auto. } }
-      iSplitL "Hγₜ".
-      { rewrite log_points_to_singleton. by iFrame. }
+      iSplitR "Hγₜ".
+      { rewrite map_Forall_singleton //. }
       iSplit.
-      { by rewrite lookup_singleton. }
+      { rewrite log_tokens_singleton //. }
+      iSplit.
+      { rewrite lookup_singleton //=. }
       iSplit.
       { done. }
       iSplit.
       { iPureIntro. apply NoDup_singleton. }
       iSplit.
       { iPureIntro. rewrite Forall_singleton. set_solver. }
-      by rewrite lookup_singleton. }
+      rewrite lookup_singleton //. }
+    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γₕ γᵣ l) with "[$Hγ'' $Hγₕ' $Hγᵣ]") as "#Hinv".
+    { rewrite /registry_inv //=. }
     iModIntro.
     iApply "HΦ".
-    iFrame.
-    rewrite /is_cached_wf.
-    iExists _, _, _, _, _. by iFrame "#".
+    by iFrame "∗ #".
   Qed.
 
   Lemma div2_mono x y : x ≤ y → Nat.div2 x ≤ Nat.div2 y.
