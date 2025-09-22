@@ -1229,35 +1229,41 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
 
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γᵢ l (length expected)) -∗
-        lexp ↦∗{dq} expected -∗
-          ldes ↦∗{dq'} desired -∗
-            <<{ ∀∀ actual, value γ actual  }>> 
-              cas (length expected) #l #lexp #ldes @ ↑N
-            <<{ if bool_decide (actual = expected) then value γ desired else value γ actual |
-                RET #(bool_decide (actual = expected)); lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired }>>.
-  Proof.
-    iIntros (Hpos Hleneq) "#Hinv Hlexp Hldes %Φ AU". 
+      inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
+        inv cached_wfN (cached_wf_inv γ γₕ γᵣ l) -∗
+          lexp ↦∗{dq} expected -∗
+            ldes ↦∗{dq'} desired -∗
+              <<{ ∀∀ actual, value γ actual  }>> 
+                cas (length expected) #l #lexp #ldes @ ↑N
+              <<{ if bool_decide (actual = expected) then value γ desired else value γ actual |
+                  RET #(bool_decide (actual = expected)); lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired }>>.
+    Proof.
+    iIntros (Hpos Hleneq) "#Hreadinv #Hinv Hlexp Hldes %Φ AU". 
     wp_rec.
     wp_pures.
     awp_apply (read'_spec with "[//]").
     { done. }
+    iInv cached_wfN as "(%log & %actual & %requests & ●Hγₕ & >Hγ & ●Hγᵣ & Hreginv)".
     rewrite /atomic_acc /=.
-    iMod "AU" as (actual) "[Hγ Hlin]".
+    iMod "AU" as (actual') "[Hγ' Hlin]".
+    rewrite /value.
+    iCombine "Hγ Hγ'" gives %[_ <-].
     iExists actual.
-    iFrame "Hγ".
+    iFrame "Hγ'".
     iModIntro.
     iSplit.
-    { iIntros "Hγ".
+    { iIntros "Hγ'".
       iDestruct "Hlin" as "[Hclose _]".
-      iMod ("Hclose" with "Hγ") as "AU".
+      iMod ("Hclose" with "Hγ'") as "AU".
       by iFrame. }
-    iIntros (valid copy backup ver γₜ) "Hγ".
+    iIntros (valid copy backup ver γₜ) "Hγ'".
     destruct (decide (actual = expected)) as [-> | Hne]; first last.
     { iDestruct "Hlin" as "[_ Hconsume]".
       rewrite bool_decide_eq_false_2; last done.
-      iMod ("Hconsume" with "Hγ") as "HΦ".
-      iModIntro. iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
+      iMod ("Hconsume" with "Hγ'") as "HΦ".
+      iModIntro.
+      iFrame.
+      iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
       wp_pures.
       rewrite -Hcopylen.
       wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
@@ -1269,7 +1275,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     destruct (decide (expected = desired)) as [-> | Hne].
     { iDestruct "Hlin" as "[_ Hconsume]".
       rewrite bool_decide_eq_true_2; last done.
-      iMod ("Hconsume" with "Hγ") as "HΦ".
+      iFrame.
+      iMod ("Hconsume" with "Hγ'") as "HΦ".
       iModIntro. iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
       wp_pures.
       wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
@@ -1285,6 +1292,22 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       rewrite bool_decide_eq_true_2; last done.
       wp_pures.
       iApply ("HΦ" with "[$]"). }
+    iFrame.
+    iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+
+        Definition cached_wf_inv (γ γₕ γᵣ : gname) (l : loc) : iProp Σ :=
+    ∃ log (actual : list val) requests,
+      (* Own other half of log in top-level invariant *)
+      log_auth_own γₕ (1/2) log ∗
+      (* Other 1/4 of logical state in top-level invariant *)
+      ghost_var γ (1/4) actual ∗
+      (* Ownership of request registry *)
+      registry γᵣ requests ∗
+      (* State of request registry *)
+      registry_inv γ (l +ₗ 1) actual requests (dom log).
+    iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+
+    iMod (registry_update with "Hregistry") as "[Hregistry Hregistered]".
     iDestruct "Hlin" as "[Hclose _]".
     iMod ("Hclose" with "Hγ") as "AU".
     iIntros "!> (Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ)".
