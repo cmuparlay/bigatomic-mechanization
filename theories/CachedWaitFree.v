@@ -365,7 +365,6 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
 
   Definition registry_inv γ lactual actual (requests : list (gname * gname * loc)) (used : gset loc) : iProp Σ :=
     [∗ list] '(γₗ, γₑ, lexp) ∈ requests,
-    
     request_inv γ γₗ γₑ lactual lexp actual used.
   Lemma array_frac_add l dq dq' vs vs' : length vs = length vs' → l ↦∗{dq} vs -∗ l ↦∗{dq'} vs' -∗ l ↦∗{dq ⋅ dq'} vs ∗ ⌜vs = vs'⌝.
   Proof.
@@ -470,7 +469,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* Physical state of version *)
       l ↦ #ver ∗
       (* backup, consisting of boolean to indicate whether cache is valid, and the backup pointer itself *)
-      (l +ₗ 1) ↦ (#valid, #backup)%V ∗
+      (l +ₗ 1) ↦{# 1/2} (#valid, #backup)%V ∗
       (* Half ownership of logical state *)
       ghost_var γ (1/4) actual ∗
       (* Shared read ownerhip of backup *)
@@ -512,11 +511,16 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       if Nat.even ver then index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/2) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
 
   Definition cached_wf_inv (γ γₕ γᵣ : gname) (l : loc) : iProp Σ :=
-    ∃ log (actual : list val) requests,
+    ∃ log (actual : list val) (valid : bool) (backup : loc) requests,
+      (* Ownership of the backup location *)
+      (l +ₗ 1) ↦{# 1/2} (#valid, #backup)%V ∗
+      (* Owernship of the logical state *)
+      ghost_var γ (1/4) actual ∗
+      (* Backup is exactly the logical state  *)
+      ⌜snd <$> log !! backup = Some actual⌝ ∗
       (* Own other half of log in top-level invariant *)
       log_auth_own γₕ (1/2) log ∗
       (* Other 1/4 of logical state in top-level invariant *)
-      ghost_var γ (1/4) actual ∗
       (* Ownership of request registry *)
       registry γᵣ requests ∗
       (* State of request registry *)
@@ -933,6 +937,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iMod (own_alloc (● map_seq O (to_agree <$> []))) as "[%γᵣ Hγᵣ]".
     { by apply auth_auth_valid. }
     iMod (array_persist with "Hbackup") as "#Hbackup".
+    iDestruct "Hvalidated" as "[Hvalidated Hvalidated']".
     iMod (inv_alloc readN _ (read_inv γ γᵥ γₕ γᵢ l n) with "[$Hvalidated $Hγ' $Hγᵥ Hγᵥ' $Hγₕ Hγᵢ $Hγᵢ' $Hcache Hcache' Hγₜ $Hversion $Hbackup]") as "#Hreadinv".
     { iExists backup. iFrame "∗ # %".
       simpl.
@@ -954,8 +959,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iSplit.
       { iPureIntro. rewrite Forall_singleton. set_solver. }
       rewrite lookup_singleton //. }
-    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γₕ γᵣ l) with "[$Hγ'' $Hγₕ' $Hγᵣ]") as "#Hinv".
-    { rewrite /registry_inv //=. }
+    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γₕ γᵣ l) with "[$Hγ'' $Hγₕ' $Hγᵣ $Hvalidated']") as "#Hinv".
+    { rewrite /registry_inv lookup_singleton //=. }
     iModIntro.
     iApply "HΦ".
     by iFrame "∗ #".
@@ -1243,8 +1248,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     wp_pures.
     awp_apply (read'_spec with "[//]").
     { done. }
-    iInv cached_wfN as "(%log & %actual & %requests & ●Hγₕ & >Hγ & ●Hγᵣ & Hreginv)".
     rewrite /atomic_acc /=.
+    iInv cached_wfN as "(%log & %actual & %requests & >●Hγₕ & >Hγ & >●Hγᵣ & Hreginv)" "Hcl".
     iMod "AU" as (actual') "[Hγ' Hlin]".
     rewrite /value.
     iCombine "Hγ Hγ'" gives %[_ <-].
@@ -1255,14 +1260,15 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     { iIntros "Hγ'".
       iDestruct "Hlin" as "[Hclose _]".
       iMod ("Hclose" with "Hγ'") as "AU".
+      iMod ("Hcl" with "[$]") as "_".
       by iFrame. }
-    iIntros (valid copy backup ver γₜ) "Hγ'".
+    iIntros (valid copy backup ver γₚ) "Hγ'".
     destruct (decide (actual = expected)) as [-> | Hne]; first last.
     { iDestruct "Hlin" as "[_ Hconsume]".
       rewrite bool_decide_eq_false_2; last done.
       iMod ("Hconsume" with "Hγ'") as "HΦ".
+      iMod ("Hcl" with "[$]") as "_".
       iModIntro.
-      iFrame.
       iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
       wp_pures.
       rewrite -Hcopylen.
@@ -1277,6 +1283,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       rewrite bool_decide_eq_true_2; last done.
       iFrame.
       iMod ("Hconsume" with "Hγ'") as "HΦ".
+      iMod ("Hcl" with "[$]") as "_".
       iModIntro. iIntros "(Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ & Hcons)".
       wp_pures.
       wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
@@ -1292,8 +1299,27 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       rewrite bool_decide_eq_true_2; last done.
       wp_pures.
       iApply ("HΦ" with "[$]"). }
-    iFrame.
-    iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+    iMod (ghost_var_alloc true) as "(%γₑ & Hγₑ & Hγₑ')".
+    iMod (ghost_var_alloc true) as "(%γₗ & Hγₗ & Hγₗ')".
+    iMod token_alloc as "[%γₜ Hγₜ]".
+    iMod (registry_update γₗ γₑ (l +ₗ 1) with "●Hγᵣ") as "[Hregistry Hregistered]".
+    iDestruct "Hlin" as "[Hclose _]".
+    iMod ("Hclose" with "Hγ'") as "AU".
+    iMod ("Hcl" with "[-]") as "_".
+    { rewrite /cached_wf_inv.
+      iFrame.
+      rewrite big_sepL_singleton /request_inv.
+      
+     }
+    iIntros "!> (Hcopy & %Hcopylen & Hbackup & ◯Hγᵥ)".
+    iMod ("Hcl" with "[-]") as "_".
+
+
+
+
+    
+    
+    (* iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
 
         Definition cached_wf_inv (γ γₕ γᵣ : gname) (l : loc) : iProp Σ :=
     ∃ log (actual : list val) requests,
@@ -1305,7 +1331,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       registry γᵣ requests ∗
       (* State of request registry *)
       registry_inv γ (l +ₗ 1) actual requests (dom log).
-    iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl".
+    iInv cached_wfN as "(%ver' & %log & %actual & %cache & %valid' & %backup₁ & %backup₁' & %requests & %index & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup₁ & >%Hindex & >%Hvalidated & >Hregistry & Hreginv & >%Hlenactual & >%Hlencache & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & Hlock)" "Hcl". *)
 
     iMod (registry_update with "Hregistry") as "[Hregistry Hregistered]".
     iDestruct "Hlin" as "[Hclose _]".
