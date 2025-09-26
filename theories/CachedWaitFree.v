@@ -377,6 +377,22 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Definition registry_inv γ lactual actual (requests : list (gname * gname * loc)) (used : gset loc) : iProp Σ :=
     [∗ list] '(γₗ, γₑ, lexp) ∈ requests, request_inv γ γₗ γₑ lactual lexp actual used.
 
+  Lemma registry_inv_mono γ backup expected requests used used' : 
+    used ⊆ used' →
+      registry_inv γ backup expected requests used -∗
+        registry_inv γ backup expected requests used'.
+  Proof.
+    iIntros (Hsub) "Hreginv".
+    iInduction requests as [|[[γₗ γₑ] lexp] requests] "IH".
+    - done.
+    - rewrite /registry_inv /=.
+      iDestruct "Hreginv" as "[Hreqinv Hreginv]".
+      iPoseProof ("IH" with "Hreginv") as "$".
+      rewrite /request_inv.
+      iDestruct "Hreqinv" as "(%Hin & $ & $)".
+      iPureIntro. set_solver.
+  Qed.
+
   Lemma array_frac_add l dq dq' vs vs' : length vs = length vs' → l ↦∗{dq} vs -∗ l ↦∗{dq'} vs' -∗ l ↦∗{dq ⋅ dq'} vs ∗ ⌜vs = vs'⌝.
   Proof.
     iIntros (Hlen) "Hl Hl'".
@@ -1226,11 +1242,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     (* Both the current and new logical state are comprised of the same number of bytes *)
     length actual = length actual' → 
     (* The current backup pointer has been logged *)
-    fst <$> log !! lactual' = Some γₜ →
+    fst <$> log !! lactual' = None →
     (* Points-to predicate of every previously logged backup *)
     log_tokens log -∗
-    (* Physical state of backup *)
-    token γₜ -∗
     (* The logical state has not yet been updated to the new state *)
     ghost_var γ (1/2) (lactual', actual') -∗
     (* The registry invariant is satisfied for the current logical state *)
@@ -1240,19 +1254,17 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     ={⊤ ∖ ↑readN ∖ ↑cached_wfN}=∗
       (* Points-to predicate of every previously logged backup *)
       log_tokens log ∗
-      (* Return ownership of token *)
-      token γₜ ∗
       (* Update new logical state to correspond to logical CAS *)
       ghost_var γ (1/2) (lactual', actual') ∗
       (* Invariant corresponding to new logical state *)
       registry_inv γ lactual' actual' requests (dom log).
   Proof.
-    iIntros (Hpos Hne Hlen Hlogged) "Hlog Hγₜ Hγ Hreqs".
+    iIntros (Hpos Hne Hlen Hlogged) "Hlog Hγ Hreqs".
     iInduction requests as [|[[γₗ γₑ] lexp] reqs'] "IH".
     - by iFrame.
     - rewrite /registry_inv. do 2 rewrite -> big_sepL_cons by done.
       iDestruct "Hreqs" as "[(%Hfresh & Hlin & %Φ & %γₜ' & %lexp' & %ldes & %dq & %dq' & %expected & %desired & Hγₑ & #Hwinv) Hreqs']".
-      iMod ("IH" with "Hlog Hγₜ Hγ Hreqs'") as "(Hlog & Hactual & Hγ & Hreqinv)".
+      iMod ("IH" with "Hlog Hγ Hreqs'") as "(Hlog & Hγ & Hreqinv)".
       iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit & AU & >Hγₑ' & >Hlin') | (>Htok & [%b >Hγₑ'] & [%b' >Hlin'])]]" "Hclose".
       + iCombine "Hlin Hlin'" gives %[_ ->].
         iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']". 
@@ -1261,11 +1273,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         { iLeft. iFrame. }
         destruct (decide (lactual' = lexp)) as [-> | Hneq].
         * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
-          iPoseProof (log_tokens_impl with "Hlog") as "[Hactual' _]".
-          { done. }
-          rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
-          destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
-          simplify_eq. simpl. iCombine "Hactual Hactual'" gives %[].
+          by destruct (log !! lexp).
         * iFrame "∗ # %".
           rewrite /request_inv.
           replace (bool_decide (lactual' = lexp)) with false.
@@ -1282,9 +1290,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
           iPoseProof (log_tokens_impl with "Hlog") as "[Hactual' _]".
           { done. }
-          rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
-          destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
-          simplify_eq. simpl. iCombine "Hactual Hactual'" gives %[].
+          by destruct (log !! lexp).
         * iFrame "∗ # %".
           rewrite (bool_decide_eq_false_2 (lactual' = lexp)); last done.
           iMod (ghost_var_update_halves (bool_decide (actual' = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
@@ -1421,35 +1427,24 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       rewrite dfrac_op_own Qp.half_half Qp.quarter_quarter.
       iDestruct "Hpost" as "[(-> & %ver' & #◯Hγᵥ' & %Hle & ◯Hγᵢ') | ->]";
       destruct Hvalidated₁ as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
-      - wp_cmpxchg_fail.
+      - (* Old backup was validated, but current backup is not *)
+        (* We will always fail *)
+         wp_cmpxchg_fail.
         admit.
-      - iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree".
+      - (* Both the current and expected backup are validated *)
+        (* The CAS may succeed, depending on the actual value *)
+        iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree".
+        (* Consider whether the current and expected backup pointers are equal *)
         destruct (decide (backup₁' = backup)) as [-> | Hneq].
-        + rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
+        + (* The first CAS will succeed, swapping in the new backup  *)
+          rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
           destruct Hcons₁' as ([? ?] & <- & Hlogged₁').
           simpl in *.
           rewrite Hlogged₁' in Hlogagree.
           simplify_eq.
           wp_cmpxchg_suc.
           iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hagree".
-          rewrite -(take_drop_middle _ _ _ Hagree).
-          rewrite /registry_inv big_sepL_app big_sepL_cons.
-          iDestruct "Hreginv" as "(Hlft & (_ & Hγₗ & _) & Hrht)".
-          iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hγₗ') | [(>Hcredit & AU & >Hγₑ' & >Hγₗ') | (>Htok & [%b >Hγₑ'] & [%b' >Hγₗ'])]]" "Hclose".
-          (* Assumes we have already returned, which is impossible *)
-          3: iCombine "Hγₜ Htok" gives %[].
-          { by iCombine "Hγₗ Hγₗ'" gives %[_ ?%bool_decide_eq_false]. }
-          iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
-          iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
-          iMod "AU" as (vs' backup''') "[Hγ' [_ Hconsume]]".
-          rewrite /value.
-          iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
-          iMod (ghost_var_update_halves (ldes', desired) with "Hγ Hγ'") as "[Hγ Hγ']".
-          rewrite bool_decide_eq_true_2; last done.
-          iMod ("Hconsume" with "[$Hγ']") as "HΦ".
-          iMod ("Hclose" with "[Hγₜ Hlin' Hγₑ']") as "_".
-          { do 2 iRight. iFrame. }
-          iMod token_alloc as "[%γₚ' Hγₚ']".
+          (* The new backup pointer cannot be logged, as we have persistent pointsto for all of the previous backup pointers, and full pointsto for the new backup *)
           iAssert (⌜log₁ !! ldes' = None⌝)%I as "%Hldes'fresh".
           { destruct (log₁ !! ldes') eqn:Hbound; last done.
             iExFalso.
@@ -1461,13 +1456,72 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             { rewrite map_Forall_lookup in Hloglen₁.
               apply Hloglen₁ in Hbound. lia. }
             lia. }
-          iMod (log_auth_update ldes' desired γₚ' with "●Hγₕ") as "[●Hγₕ ◯Hγₕ₁]".
+          (* Split the registry invariant into three parts
+             1) That corresponds to requests before this CAS
+             2) That corresponding to this CAS
+             3) Any following this CAS *)
+          rewrite -(take_drop_middle _ _ _ Hagree).
+          rewrite /registry_inv big_sepL_app big_sepL_cons /request_inv.
+          iDestruct "Hreginv" as "(Hlft & (%Hbackupin & Hγₗ & %Φ' & %γₜ' & %lexp' & %ldes'' & %dq₁ & %dq₂ & %expected' & %desired' & Hγₑ & ?) & Hrht)".
+          iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hγₗ') | [(>Hcredit & AU & >Hγₑ' & >Hγₗ') | (>Htok & [%b >Hγₑ'] & [%b' >Hγₗ'])]]" "Hclose".
+          (* Assumes we have already returned, which is impossible *)
+          3: iCombine "Hγₜ Htok" gives %[].
+          { (* Assumes we have already linearized, which again is impossible *)
+          by iCombine "Hγₗ Hγₗ'" gives %[_ ?%bool_decide_eq_false]. }
+          iCombine "Hγₑ Hγₑ'" gives %[_ <-%bool_decide_eq_true].
+          iMod (ghost_var_update_halves false with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']".
+          rewrite bool_decide_eq_true_2; last done.
+          (* Now update the ghost state. This CAS will linearize first, invalidating all other pending CAS's and causing them to fail *)
+          iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
+          (* Execute our LP *)
+          iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
+          iMod "AU" as (vs' backup''') "[Hγ' [_ Hconsume]]".
+          rewrite /value.
+          iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+          iMod (ghost_var_update_halves (ldes', desired) with "Hγ Hγ'") as "[Hγ Hγ']".
+          rewrite {}bool_decide_eq_true_2; last done.
+          iMod ("Hconsume" with "[$Hγ']") as "HΦ".
+          iMod ("Hclose" with "[Hγₜ Hlin' Hγₑ']") as "_".
+          { do 2 iRight. iFrame. }
+          (* Now linearize all other CAS's (in arbitrary order) *)
+          iMod (linearize_cas with "Hlogtokens Hγ Hlft") as "(Hlogtokens & Hγ & Hlft)".
           { done. }
-          iMod (linearize_cas with "Hlogtokens Hγₚ' Hγ Hlft") as "(Hlogtokens & Hγₚ' & Hγ & Hlft)".
+          { done. }
+          { done. }
+          { done. }
+          { by destruct (log₁ !! ldes'). }
+          iMod (linearize_cas with "Hlogtokens Hγ Hrht") as "(Hlogtokens & [Hγ Hγ'] & Hrht)".
           { done. }
           { done. }
           { done. }
           { done. }
+          { by destruct (log₁ !! ldes'). }
+          replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
+          (* We now will insert this backup into the log *)
+          (* First, we allocate a token representing the pointsto for the backup *)
+          iMod token_alloc as "[%γₚ' Hγₚ']".
+          (* Now update the log *)
+          iMod (log_auth_update ldes' desired γₚ' with "●Hγₕ") as "[[●Hγₕ ●Hγₕ'] ◯Hγₕ₁]".
+          { done. }
+          iDestruct "Hbackup₁" as "[Hbackup₁ Hbackup₁']".
+          iMod ("Hcl'" with "[$●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ ●Hγᵣ Hlft Hrht]") as "_".
+          { rewrite (take_drop_middle _ _ _ Hagree).
+            iFrame. iSplit.
+            { rewrite lookup_insert //. }
+            iNext.
+            iApply (registry_inv_mono _ _ _ _ (dom log₁)).
+            { set_solver. }
+            rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv.
+            iFrame.
+            rewrite /request_inv.
+            iFrame "%".
+            rewrite bool_decide_eq_false_2; last first.
+            { intros <-. congruence. }
+            rewrite bool_decide_eq_false_2; last done.
+            iFrame. }
+          (* If the registry invariant held for the smaller log, it will hold for the log with the new backup inserted *)
+          iPoseProof (registry_inv_mono _ _ _ _ (dom (<[ldes':=(γₚ', desired)]> log₁)) with "Hlft") as "Hlft".
+          { set_solver. }
 
           iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
           { do 2 iRight. iFrame. }
