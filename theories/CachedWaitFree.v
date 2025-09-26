@@ -340,7 +340,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     ∨ (token γₜ ∗ (∃ b : bool, ghost_var γₑ (1/2) b) ∗ ∃ b : bool, ghost_var γₗ (1/2) b).  (* The failing write has linearized and returned *)
 
   Definition log_tokens (log : gmap loc (gname * list val)) : iProp Σ :=
-    ([∗ map] _ ↦ '(γ, _) ∈ log, token γ)%I.
+    ([∗ map] backup ↦ '(γ, vs) ∈ log, token γ ∗ backup ↦∗□ vs)%I.
 
   (* Lemma log_tokens_impl log l γ :
     fst <$> log !! l = Some γ → log_tokens log -∗ token γ.
@@ -353,7 +353,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Qed. *)
 
   Lemma log_tokens_impl log l γ value :
-    log !! l = Some (γ, value) → log_tokens log -∗ token γ.
+    log !! l = Some (γ, value) → log_tokens log -∗ token γ ∗ l ↦∗□ value.
   Proof.
     iIntros (Hbound) "Hlog".
     iPoseProof (big_sepM_lookup with "Hlog") as "H /=".
@@ -362,12 +362,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Qed.
 
   Lemma log_tokens_singleton l γ value :
-    log_tokens {[ l := (γ, value) ]} ⊣⊢ token γ.
+    log_tokens {[ l := (γ, value) ]} ⊣⊢ token γ ∗ l ↦∗□ value.
   Proof.
-    iSplit.
-    - iIntros "Hlog". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, _), token γ)%I l (γ, value) with "Hlog").
-    - iIntros "Htok". iApply (@big_sepM_singleton (iProp Σ) _ _ _ _ (λ _ '(γ, _), token γ)%I l (γ, value) with "[-]").
-      { iFrame "% ∗". }
+    rewrite /log_tokens big_sepM_singleton //.
   Qed.
 
   Definition request_inv γ γₗ γₑ (lactual lexp : loc) (actual : list val) (used : gset loc) : iProp Σ :=
@@ -393,6 +390,26 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iFrame.
       iPoseProof ("IH" with "[//] [$] [$]") as "[Hl <-]".
       by iFrame.
+  Qed.
+
+  Lemma array_pointsto_valid l dq vs : length vs > 0 → l ↦∗{dq} vs -∗ ⌜✓ dq⌝.
+  Proof.
+    iIntros (Hpos) "Hl".
+    destruct vs as [|v vs].
+    { inv Hpos. }
+    rewrite array_cons.
+    iDestruct "Hl" as "[Hl _]".
+    iApply (pointsto_valid with "Hl").
+  Qed.
+
+  Lemma array_pointsto_pointsto_persist l vs vs' :
+    length vs = length vs' → length vs > 0 → 
+      l ↦∗ vs -∗ l ↦∗□ vs' -∗ False.
+  Proof.
+    iIntros (Hlensame Hlenpos) "Hl Hl'".
+    iPoseProof (array_frac_add with "Hl Hl'") as "[Hl %HJ]".
+    { done. }
+    by iDestruct (array_pointsto_valid with "Hl") as %Hvalid.
   Qed.
 
   Definition read_inv (γ γᵥ γₕ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
@@ -897,7 +914,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       iSplitR "Hγₜ".
       { rewrite map_Forall_singleton //. }
       iSplit.
-      { rewrite log_tokens_singleton //. }
+      { rewrite log_tokens_singleton. iFrame "∗ #". }
       iSplit.
       { rewrite lookup_singleton //=. }
       iSplit.
@@ -1244,7 +1261,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         { iLeft. iFrame. }
         destruct (decide (lactual' = lexp)) as [-> | Hneq].
         * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
-          iPoseProof (log_tokens_impl with "Hlog") as "Hactual'".
+          iPoseProof (log_tokens_impl with "Hlog") as "[Hactual' _]".
           { done. }
           rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
           destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
@@ -1263,7 +1280,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         rewrite (bool_decide_eq_false_2 (actual' = expected)); last done.
         destruct (decide (lactual' = lexp)) as [-> | Hdiff].
         * apply elem_of_dom in Hfresh as [[γₜ'' value] Hvalue].
-          iPoseProof (log_tokens_impl with "Hlog") as "Hactual'".
+          iPoseProof (log_tokens_impl with "Hlog") as "[Hactual' _]".
           { done. }
           rewrite -lookup_fmap lookup_fmap_Some in Hlogged.
           destruct Hlogged as ([γₜ''' vs] & Heq & Hlookup).
@@ -1406,33 +1423,66 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       destruct Hvalidated₁ as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
       - wp_cmpxchg_fail.
         admit.
-      - destruct (decide (backup₁' = backup)) as [-> | Hneq].
-        + wp_cmpxchg_suc.
+      - iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree".
+        destruct (decide (backup₁' = backup)) as [-> | Hneq].
+        + rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
+          destruct Hcons₁' as ([? ?] & <- & Hlogged₁').
+          simpl in *.
+          rewrite Hlogged₁' in Hlogagree.
+          simplify_eq.
+          wp_cmpxchg_suc.
           iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hagree".
           rewrite -(take_drop_middle _ _ _ Hagree).
           rewrite /registry_inv big_sepL_app big_sepL_cons.
           iDestruct "Hreginv" as "(Hlft & (_ & Hγₗ & _) & Hrht)".
           iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hγₗ') | [(>Hcredit & AU & >Hγₑ' & >Hγₗ') | (>Htok & [%b >Hγₑ'] & [%b' >Hγₗ'])]]" "Hclose".
+          (* Assumes we have already returned, which is impossible *)
+          3: iCombine "Hγₜ Htok" gives %[].
           { by iCombine "Hγₗ Hγₗ'" gives %[_ ?%bool_decide_eq_false]. }
-          { iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
-            iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
-            iMod "AU" as (n') "[Hγ' [_ Hconsume]]".
-            iMod (ghost_var_update_halves vs' with "Hγ Hγ'") as "[Hγ Hγ']".
-            iMod ("Hconsume" with "Hγ") as "HΦ".
-            iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
-            { do 2 iRight. iFrame. }
-            iMod ("Hcl" with "[-HΦ Hsrc]") as "_".
-            { iExists (S (S ver)), (history' ++ [vs']), vs', registry''.
-              rewrite <- Nat.Even_div2 by now rewrite -Nat.even_spec.
-              rewrite (take_drop_middle _ _ _ Hagree).
-              rewrite /= Heven. change 2%Z with (Z.of_nat 2).
-              rewrite -Nat2Z.inj_add /=.
-              rewrite last_snoc last_length Hhistory'. iFrame.
-              iNext. iSplit; last done.
-              rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv big_sepL_app big_sepL_cons.
-              iFrame "∗ #".
-              rewrite bool_decide_eq_false_2; first done.
-              lia. }
+          iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
+          iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
+          iMod "AU" as (vs' backup''') "[Hγ' [_ Hconsume]]".
+          rewrite /value.
+          iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+          iMod (ghost_var_update_halves (ldes', desired) with "Hγ Hγ'") as "[Hγ Hγ']".
+          rewrite bool_decide_eq_true_2; last done.
+          iMod ("Hconsume" with "[$Hγ']") as "HΦ".
+          iMod ("Hclose" with "[Hγₜ Hlin' Hγₑ']") as "_".
+          { do 2 iRight. iFrame. }
+          iMod token_alloc as "[%γₚ' Hγₚ']".
+          iAssert (⌜log₁ !! ldes' = None⌝)%I as "%Hldes'fresh".
+          { destruct (log₁ !! ldes') eqn:Hbound; last done.
+            iExFalso.
+            iPoseProof (big_sepM_lookup with "Hlogtokens") as "Hlogged".
+            { done. }
+            destruct p.
+            iDestruct "Hlogged" as "[_ Hldes'₁]".
+            iApply (array_pointsto_pointsto_persist with "Hldes' Hldes'₁").
+            { rewrite map_Forall_lookup in Hloglen₁.
+              apply Hloglen₁ in Hbound. lia. }
+            lia. }
+          iMod (log_auth_update ldes' desired γₚ' with "●Hγₕ") as "[●Hγₕ ◯Hγₕ₁]".
+          { done. }
+          iMod (linearize_cas with "Hlogtokens Hγₚ' Hγ Hlft") as "(Hlogtokens & Hγₚ' & Hγ & Hlft)".
+          { done. }
+          { done. }
+          { done. }
+          { done. }
+
+          iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
+          { do 2 iRight. iFrame. }
+          iMod ("Hcl" with "[-HΦ Hsrc]") as "_".
+          { iExists (S (S ver)), (history' ++ [vs']), vs', registry''.
+            rewrite <- Nat.Even_div2 by now rewrite -Nat.even_spec.
+            rewrite (take_drop_middle _ _ _ Hagree).
+            rewrite /= Heven. change 2%Z with (Z.of_nat 2).
+            rewrite -Nat2Z.inj_add /=.
+            rewrite last_snoc last_length Hhistory'. iFrame.
+            iNext. iSplit; last done.
+            rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv big_sepL_app big_sepL_cons.
+            iFrame "∗ #".
+            rewrite bool_decide_eq_false_2; first done.
+            lia. }
             iModIntro.
             by iApply "HΦ". }
 
