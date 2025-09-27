@@ -1307,6 +1307,19 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
         done.
   Qed.
 
+  Lemma log_tokens_update log l γ vs :
+    log !! l = None →
+      log_tokens log -∗
+        token γ -∗
+          l ↦∗□ vs -∗
+            log_tokens (<[l := (γ, vs)]> log).
+  Proof.
+    iIntros (Hlog) "Hlogtokens Htok #Hl".
+    rewrite /log_tokens.
+    rewrite big_sepM_insert; last done.
+    iFrame "∗ #".
+  Qed.
+
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
       inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
@@ -1504,7 +1517,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iMod (log_auth_update ldes' desired γₚ' with "●Hγₕ") as "[[●Hγₕ ●Hγₕ'] ◯Hγₕ₁]".
           { done. }
           iDestruct "Hbackup₁" as "[Hbackup₁ Hbackup₁']".
-          iMod ("Hcl'" with "[$●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ ●Hγᵣ Hlft Hrht]") as "_".
+          iMod ("Hcl'" with "[$●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
           { rewrite (take_drop_middle _ _ _ Hagree).
             iFrame. iSplit.
             { rewrite lookup_insert //. }
@@ -1514,11 +1527,23 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv.
             iFrame.
             rewrite /request_inv.
-            iFrame "%".
+            iFrame "% #".
             rewrite bool_decide_eq_false_2; last first.
             { intros <-. congruence. }
             rewrite bool_decide_eq_false_2; last done.
             iFrame. }
+          iModIntro.
+          iMod (array_persist with "Hldes'") as "#Hldes'".
+          iPoseProof (log_tokens_update with "Hlogtokens Hγₚ' Hldes'") as "Hlogtokens".
+          { done. }
+          iMod ("Hcl" with "[$Hγ' $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup₁' $Hver $●Hγₕ']") as "_".
+          { iFrame "% #". repeat iSplit; auto.
+            { rewrite map_Forall_insert //. }
+            { rewrite lookup_insert //=. }
+            { iPureIntro. eapply Forall_impl; first done.
+              simpl. set_solver. }
+            { iPureIntro. destruct (Nat.even ver₁); last done.
+              rewrite lookup_insert_ne; last done. } }
           (* If the registry invariant held for the smaller log, it will hold for the log with the new backup inserted *)
           iPoseProof (registry_inv_mono _ _ _ _ (dom (<[ldes':=(γₚ', desired)]> log₁)) with "Hlft") as "Hlft".
           { set_solver. }
