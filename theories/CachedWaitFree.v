@@ -258,6 +258,16 @@ Section cached_wf.
     by iFrame.
   Qed.
 
+  Lemma invalid_auth_frag_agree γ (invalid invalid' : gset nat) :
+    own γ (● invalid) -∗ 
+      own γ (◯ invalid') -∗ 
+        ⌜invalid' ⊆ invalid⌝.
+  Proof.
+    iIntros "●H ◯H".
+    iCombine "●H ◯H" gives %(_ & Hvalid & _)%auth_both_dfrac_valid_discrete.
+    set_solver.
+  Qed.
+
   Lemma log_auth_frag_agree γₕ q log i γ value : 
     log_auth_own γₕ q log -∗
       log_frag_own γₕ i γ value -∗
@@ -1342,9 +1352,19 @@ Proof.
     done.
 Qed. *)
 
-  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
+  Lemma invalid_auth_update_alloc ver γ (invalid : gset nat) : own γ (● invalid) ==∗ own γ (● ({[ ver ]} ∪ invalid)) ∗ own γ (◯ ({[ ver ]} ∪ invalid)).
+  Proof.
+    iIntros "●Hγ".
+    iMod (own_update with "●Hγ") as "[●Hγ ◯Hγ]".
+    { eapply (auth_update_alloc _ ({[ ver ]} ∪ invalid)).
+      apply gset_local_update.
+      set_solver. }
+    by iFrame.
+  Qed.
+
+  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_invalid : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
-      inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ γ_invalid l (length expected)) -∗
         inv cached_wfN (cached_wf_inv γ γₕ γᵣ l) -∗
           lexp ↦∗{dq} expected -∗
             ldes ↦∗{dq'} desired -∗
@@ -1453,7 +1473,7 @@ Qed. *)
       iIntros (ldes') "[Hldes' Hldes]".
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
-      iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock)" "Hcl".
+      iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & %invalid₁ & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >●Hγ_invalid & >Hcache & >%Hcons₁ & Hlock)" "Hcl".
       iInv cached_wfN as "(%log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv)" "Hcl'".
       iCombine "Hγ Hγ'" as "Hγ" gives %[_ [=<-<-]].
       iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁" gives %[_ <-].
@@ -1463,7 +1483,7 @@ Qed. *)
       iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
       rewrite dfrac_op_own Qp.half_half Qp.quarter_quarter.
       iDestruct "Hpost" as "[(-> & %ver' & #◯Hγᵥ' & %Hle & ◯Hγᵢ') | ->]";
-      destruct Hvalidated₁ as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
+      destruct Hvalidated₁ as [[-> Hγ_invalid] | (-> & Heven%Nat.even_spec & -> & -> & Hγ_valid)].
       - (* Old backup was validated, but current backup is not *)
         (* We will always fail *)
          wp_cmpxchg_fail.
@@ -1565,8 +1585,10 @@ Qed. *)
           iMod (array_persist with "Hldes'") as "#Hldes'".
           iPoseProof (log_tokens_update with "Hlogtokens Hγₚ' Hldes'") as "Hlogtokens".
           { done. }
-          iMod ("Hcl" with "[$Hγ' $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup₁' $Hver $●Hγₕ']") as "_".
-          { iFrame "% #". repeat iSplit; auto.
+          iMod (invalid_auth_update_alloc ver₁ with "●Hγ_invalid") as "[●Hγ_invalid #◯Hγ_invalid]".
+          iMod ("Hcl" with "[●Hγ_invalid $Hγ' $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup₁' $Hver $●Hγₕ']") as "_".
+          { iFrame "% #". iExists ({[ver₁]} ∪ invalid₁). iFrame. repeat iSplit; auto.
+            { iPureIntro. left. split; first done. set_solver. }
             { rewrite map_Forall_insert //. }
             { rewrite lookup_insert //=. }
             { iPureIntro. eapply Forall_impl; first done.
@@ -1579,7 +1601,7 @@ Qed. *)
           * rewrite Zrem_even even_inj Heven' /=.
             wp_pures.
             wp_bind (CmpXchg _ _ _).
-            iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
+            iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %invalid & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >●Hγ_invalid & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
             iInv cached_wfN as "(%log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & >Hbackup' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv)" "Hcl'".
             iPoseProof ("HΦ" with "[$]") as "HΦ".
             destruct (decide (ver₂ = ver)) as [-> | Hneq]; first last.
@@ -1587,7 +1609,7 @@ Qed. *)
               { intros [=]. lia. }
               iMod ("Hcl'" with "[$Hbackup' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ]") as "_".
               { iFrame "%". }
-              iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
+              iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup $Hver $●Hγₕ $□Hbackup₂ $●Hγ_invalid]") as "_".
               { iFrame "%". }
               iApply fupd_mask_intro.
               { set_solver. }
@@ -1605,8 +1627,11 @@ Qed. *)
             { iFrame "%". }
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
-            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%H". 
-            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
+            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%H".
+            iPoseProof (invalid_auth_frag_agree with "●Hγ_invalid ◯Hγ_invalid") as "%Hsubseteq".
+            destruct Hvalidated₂ as [[-> _] | (_ & _ & _ & Hvalid)]; last set_solver.
+            
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂ $●Hγ_invalid]") as "_".
             { rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
               rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
               rewrite Heven /=.
