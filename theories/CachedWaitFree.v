@@ -169,9 +169,13 @@ Section cached_wf.
 
   Definition log_auth_own γᵥ (q : Qp) (log : gmap loc (gname * list val)) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
 
+  Definition vers_auth_own γᵥ (q : Qp) (log : gmap loc nat) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
+
   Definition value γ (backup : loc) (vs : list val) : iProp Σ := ghost_var γ (1/2) (backup, vs).
 
   Definition log_frag_own γₕ l γ (value : list val) := own γₕ (◯ {[l := to_agree (γ, value)]}).
+
+  Definition vers_frag_own γ (l : loc) (ver : nat) := own γ (◯ {[l := to_agree ver]}).
 
   Definition index_frag_own γᵢ (i : nat) (l : loc) := own γᵢ (◯ {[i := to_agree l]}).
 
@@ -239,6 +243,25 @@ Section cached_wf.
       { by rewrite lookup_fmap fmap_None. }
       constructor. }
     rewrite fmap_insert.
+    by iFrame.
+  Qed.
+
+  Lemma vers_auth_update (l : loc) (ver : nat) (γ : gname) (log : gmap loc nat) :
+    log !! l = None →
+      vers_auth_own γ 1 log ==∗
+        vers_auth_own γ 1 (<[l := ver]>log) ∗ vers_frag_own γ l ver.
+  Proof.
+    iIntros (Hfresh) "H●".
+    rewrite /log_auth_own /log_frag_own.
+    iMod (own_update with "H●") as "[H● H◯]".
+    { eapply auth_update_alloc.
+      apply alloc_singleton_local_update 
+        with 
+          (i := l)
+          (x := to_agree ver).
+      { by rewrite lookup_fmap fmap_None. }
+      constructor. }
+    rewrite -fmap_insert.
     by iFrame.
   Qed.
 
@@ -964,7 +987,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iMod (own_alloc (● ∅)) as "[%γ_vers Hγ_vers]".
     { by apply auth_auth_valid. }
     iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γ_vers l) with "[$Hγ'' $Hγₕ' $Hγᵣ $Hvalidated' $Hγᵥ Hγ_vers]") as "#Hinv".
-    { iExists ∅. iFrame. rewrite /registry_inv lookup_singleton /=. rewrite bool_decide_eq_false_2; first auto.
+    { iExists ∅. iFrame. rewrite /registry_inv lookup_singleton /=. rewrite bool_decide_eq_false_2.
+    { repeat iSplit; auto. iPureIntro. set_solver. }
     rewrite map_size_singleton. lia. }
     iModIntro.
     iApply "HΦ".
@@ -1546,19 +1570,17 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iMod (log_auth_update ldes' desired γₚ' with "●Hγₕ") as "[[●Hγₕ ●Hγₕ'] #◯Hγₕ₁]".
           { done. }
           iDestruct "Hbackup₁" as "[Hbackup₁ Hbackup₁']".
-          iMod ("Hcl'" with "[$●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
           assert (O < size log₁) as Hlogsome₁.
           { assert (size log₁ ≠ 0); last lia.
             rewrite map_size_ne_0_lookup.
             naive_solver. }
-          assert (1 < size log₁) as Hlogsome₁.
-          { assert (size log₁ ≠ 0); last lia.
-            rewrite map_size_ne_0_lookup.
-            naive_solver. }
+          iMod ()
+          iMod ("Hcl'" with "[$●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
           { rewrite (take_drop_middle _ _ _ Hagree).
             iFrame. rewrite map_size_insert_None; last done.
             rewrite bool_decide_eq_true_2; first last.
-            { }
+            { lia. }
+            iExists (<[ldes' := ver₁]>ver)
             iSplit.
             { rewrite lookup_insert //. }
             iNext.
