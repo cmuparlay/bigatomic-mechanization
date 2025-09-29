@@ -495,6 +495,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       registry_inv γ backup actual requests (dom log) ∗
       (* Auth ownership of version mapping *)
       own γ_vers (● (@fmap _ gmap_fmap _ _ to_agree vers)) ∗
+      (* domain of versions is contained in domain of log *)
+      ⌜dom vers ⊂ dom log⌝ ∗
       (* Only atomics after the first have read in invalid version after being swapped in *)
       ⌜if bool_decide (1 < size log) then
         ∃ ver' : nat,
@@ -1545,8 +1547,19 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           { done. }
           iDestruct "Hbackup₁" as "[Hbackup₁ Hbackup₁']".
           iMod ("Hcl'" with "[$●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
+          assert (O < size log₁) as Hlogsome₁.
+          { assert (size log₁ ≠ 0); last lia.
+            rewrite map_size_ne_0_lookup.
+            naive_solver. }
+          assert (1 < size log₁) as Hlogsome₁.
+          { assert (size log₁ ≠ 0); last lia.
+            rewrite map_size_ne_0_lookup.
+            naive_solver. }
           { rewrite (take_drop_middle _ _ _ Hagree).
-            iFrame. iSplit.
+            iFrame. rewrite map_size_insert_None; last done.
+            rewrite bool_decide_eq_true_2; first last.
+            { }
+            iSplit.
             { rewrite lookup_insert //. }
             iNext.
             iApply (registry_inv_mono _ _ _ _ (dom log₁)).
