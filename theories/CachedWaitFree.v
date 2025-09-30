@@ -1372,6 +1372,35 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Proof.
     intros. set_solver. *)
 
+  Lemma own_auth_split_self (dq : dfrac) (γ : gname) (m : gmap loc (agree (gname * list val))) :
+    own γ (●{dq} m) ==∗ own γ (●{dq} m) ∗ own γ (◯ m).
+  Proof.
+    iIntros "H●".
+    iMod (own_update with "H●") as "[H● H◯]".
+    { apply auth_update_dfrac_alloc with (b := m).
+      - apply _.
+      - reflexivity. }
+    by iFrame.
+  Qed.
+
+Require Import stdpp.fin_maps.
+
+Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
+        (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+Proof.
+  intros Hincl. apply map_subseteq_spec.
+  intros i x Hix.
+  rewrite lookup_included in Hincl.
+  specialize (Hincl i).
+  do 2 rewrite lookup_fmap in Hincl.
+  rewrite Hix /= in Hincl.
+  apply Some_included_is_Some in Hincl as H.
+  destruct H as [y Hsome].
+  rewrite Hsome Some_included_total in Hincl.
+  rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+  destruct Hsome as (x' & <- & Hix').
+  by apply to_agree_included, leibniz_equiv in Hincl as <-.
+Qed.
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
       inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
@@ -1582,10 +1611,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           { rewrite not_elem_of_dom //. }
           iMod (vers_auth_update ldes' ver₁ with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_vers]".
           { rewrite -not_elem_of_dom. set_solver. }
+          assert (size (<[ldes':=(γₚ', desired)]> log₁) > 1) as Hvers₁multiple.
+          { rewrite map_size_insert_None //. lia. }
+          iMod (own_auth_split_self with "●Hγₕ") as "[●Hγₕ ◯Hγₕcopy]".
           iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
           { rewrite (take_drop_middle _ _ _ Hagree).
-            iFrame. rewrite map_size_insert_None; last done.
-            rewrite bool_decide_eq_true_2; last lia.
+            iFrame. rewrite bool_decide_eq_true_2; last lia.
             iSplit.
             { rewrite lookup_insert //. }
             iNext. iSplit.
@@ -1631,9 +1662,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iMod (array_persist with "Hldes'") as "#Hldes'".
           iPoseProof (log_tokens_update with "Hlogtokens Hγₚ' Hldes'") as "Hlogtokens".
           { done. }
-          iMod ("Hcl" with "[●Hγ_invalid $Hγ' $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup₁' $Hver $●Hγₕ']") as "_".
-          { iFrame "% #". iExists ({[ver₁]} ∪ invalid₁). iFrame. repeat iSplit; auto.
-            { iPureIntro. left. split; first done. set_solver. }
+          iMod ("Hcl" with "[$Hγ' $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup₁' $Hver $●Hγₕ']") as "_".
+          { iFrame "% # ∗". repeat iSplit; auto.
+            (* { iPureIntro. left. split; first done. set_solver. } *)
             { rewrite map_Forall_insert //. }
             { rewrite lookup_insert //=. }
             { iPureIntro. eapply Forall_impl; first done.
@@ -1646,15 +1677,15 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           * rewrite Zrem_even even_inj Heven' /=.
             wp_pures.
             wp_bind (CmpXchg _ _ _).
-            iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %invalid & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >●Hγ_invalid & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
-            iInv cached_wfN as "(%log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & >Hbackup' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv)" "Hcl'".
+            iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
+            iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂)" "Hcl'".
             iPoseProof ("HΦ" with "[$]") as "HΦ".
             destruct (decide (ver₂ = ver)) as [-> | Hneq]; first last.
             { wp_cmpxchg_fail.
               { intros [=]. lia. }
-              iMod ("Hcl'" with "[$Hbackup' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ]") as "_".
+              iMod ("Hcl'" with "[$Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγᵥ' $●Hγ_vers $Hbackup₂']") as "_".
               { iFrame "%". }
-              iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup $Hver $●Hγₕ $□Hbackup₂ $●Hγ_invalid]") as "_".
+              iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
               { iFrame "%". }
               iApply fupd_mask_intro.
               { set_solver. }
@@ -1664,11 +1695,15 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
             assert (ver₁ = ver) as -> by lia.
             rewrite Heven.
-            iDestruct "Hlock" as "(●Hγᵢ' & ●Hγᵥ' & Hcache₂)".
+            iDestruct "Hlock" as "(●Hγᵢ' & ●Hγᵥ'' & Hcache₂)".
+            iCombine "●Hγᵥ ●Hγᵥ''" as "●Hγᵥ". rewrite Qp.quarter_quarter.
+            iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
             iCombine "●Hγᵥ ●Hγᵥ'" as "●Hγᵥ".
-            iMod (mono_nat_own_update (S ver) with "●Hγᵥ") as "[[●Hγᵥ ●Hγᵥ'] #Hlb']".
+            iMod (mono_nat_own_update (S ver) with "●Hγᵥ") as "[(●Hγᵥ & ●Hγᵥ' & ●Hγᵥ'') #Hlb']".
             { lia. }
-            iMod ("Hcl'" with "[$Hbackup' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ]") as "_".
+            iCombine "●Hγₕ ◯Hγₕcopy" gives %(_ & Hvalid%fmap_to_agree_included_subseteq%map_subseteq_size & _)%auth_both_dfrac_valid_discrete.
+            assert (size log₂ > 1) as Hsize₂ by lia.
+            iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ]") as "_".
             { iFrame "%". }
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
