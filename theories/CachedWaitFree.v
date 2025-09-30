@@ -1745,28 +1745,25 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             { rewrite -not_elem_of_dom //. set_solver. }
             destruct Hvalidvers as [Hvalidvers _].
             assert (ver'' = ver) as -> by lia.
-
-
-            Check map_Forall_subseteq.
+            rewrite bool_decide_eq_true_2 // in Hinvalid.
+            simplify_eq.
+            iCombine "Hbackup Hbackup₂'" gives %[_ ->].
             iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ]") as "_".
-            { iFrame "%". destruct () }
+            { iFrame "%". iPureIntro. rewrite bool_decide_eq_true_2; last lia.
+              exists ver. repeat split; auto.
+              rewrite bool_decide_eq_false_2 //. }
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
             iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%H".
-            iPoseProof (invalid_auth_frag_agree with "●Hγ_invalid ◯Hγ_invalid") as "%Hsubseteq".
-            destruct Hvalidated₂ as [[-> _] | (_ & _ & _ & Hvalid)]; last set_solver.
-
-            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂ $●Hγ_invalid]") as "_".
+            destruct Hvalidated₂ as [-> | ([=] & _ & _ & _)].
+            replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ ●Hγᵢ' $●Hγᵥ'' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
             { rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
               rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
               rewrite Heven /=.
               iFrame "∗ %".
-              repeat iSplit; last done.
-              - iPureIntro. au admit.
-              - admit. 
-              iPoseProof (log_auth_frag_agree with) 
-
-              }
+              auto. }
+            
             iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
             { rewrite /seqlock_inv. iExists (S ver), history', vs'', registry'.
               rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
