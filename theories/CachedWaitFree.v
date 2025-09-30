@@ -1203,7 +1203,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iMod (log_frag_alloc backup' with "●Hlog") as "[●Hlog #◯Hlog]".
     { eassumption. }
     iMod (index_frag_alloc with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
-    { by rewrite last_lookup Hlenᵢ /= in Hindex. }
+    { by rewrite last_lookup Hlenᵢ in Hindex. }
     iMod ("Hcl" with "[-AU]") as "_".
     { rewrite /cached_wf_inv.
       iExists ver, log, actual, cache, marked_backup, backup, backup', index.
@@ -1211,7 +1211,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iModIntro.
     wp_smart_apply (wp_array_clone_wk with "[//] [//] [//]").
     { done. }
-    iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & #Hcons) /=".
+    iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & #Hcons)".
     wp_pures.
     wp_bind (! _)%E.
     iInv readN as "(%ver' & %log' & %actual' & %cache' & %marked_backup₁ & %backup₁ & %backup₁' & %index' & >Hver & >Hbackup & >Hγ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock)" "Hcl".
@@ -1221,11 +1221,11 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     pose proof Hlogged' as Hlogged₁'.
     rewrite -lookup_fmap lookup_fmap_Some in Hlogged'.
     destruct Hlogged' as ([γₜ₁ ?] & Heq & Hlogged').
-    simpl in *. subst.
+    simpl in Heq. subst.
     iMod ("Hconsume" $! marked_backup₁ dst backup₁ ver γₜ₁ with "Hγ'") as "HΦ".
     iPoseProof (log_auth_frag_agree with "●Hlog ◯Hlog") as "%Hlookup".
     iMod (index_frag_alloc with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ']".
-    { by rewrite last_lookup Hlenᵢ' /= in Hindex'. }
+    { by rewrite last_lookup Hlenᵢ' in Hindex'. }
     iDestruct (index_auth_frag_agree with "●Hγᵢ ◯Hγᵢ") as "%Hindexagree".
     iMod (log_frag_alloc backup₁ with "●Hlog") as "[●Hlog #◯Hlog']".
     { eassumption. }
@@ -1237,7 +1237,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       iFrame "∗ # %". }
     iModIntro.
     wp_pures.
-    destruct Hvalidated' as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
+    destruct Hvalidated' as [-> | (-> & HEven & -> & ->)].
     - rewrite /is_valid /strip.
       wp_pures.
       wp_apply (wp_array_copy_to_persistent with "[$Hdst $□Hbackup₁]").
@@ -1257,20 +1257,26 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       iPoseProof (log_auth_frag_agree with "●Hlog ◯Hlog") as "%Hlookup'".
       iDestruct (index_auth_frag_agree with "●Hγᵢ ◯Hγᵢ") as "%Hindexagree'".
       destruct (decide (ver'' = ver)) as [-> | Hne].
-      + rewrite last_lookup Hlenᵢ /= in Hindex.
-        rewrite last_lookup Hlenᵢ' /= in Hindex'.
+      + rewrite last_lookup Hlenᵢ in Hindex.
+        rewrite last_lookup Hlenᵢ' in Hindex'.
         pose proof Hindex'' as Hindex'''.
-        rewrite last_lookup Hlenᵢ'' /= in Hindex''.
+        rewrite last_lookup Hlenᵢ'' in Hindex''.
         replace ver' with ver in * by lia.
         clear Hle Hle'.  
         simplify_eq.
-        pose proof Hcons'' as  Hcons'''.
+        pose proof Hcons'' as Hcons'''.
+        apply Nat.even_spec in HEven as Heven.
         rewrite Heven -lookup_fmap lookup_fmap_Some in Hcons.
         rewrite Heven -lookup_fmap lookup_fmap_Some in Hcons'.
         rewrite Heven -lookup_fmap lookup_fmap_Some in Hcons''.
         destruct Hcons as ([? ?] & <- & Hcons).
         destruct Hcons' as ([? ?] & <- & Hcons').
         destruct Hcons'' as ([? ?] & <- & Hcons'').
+        rewrite Nat.Odd_div2; first last.
+        { rewrite Nat.Odd_succ //. }
+        rewrite Nat.Odd_div2 in Hlenᵢ Hlenᵢ' Hindexagree Hindexagree' Hindex Hlenᵢ''; first last.
+        { rewrite Nat.Odd_succ //. }
+        simpl in *.
         rewrite Hcons'' in Hlookup'.
         rewrite Hcons' in Hlookup.
         simplify_eq.
@@ -1300,7 +1306,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         iMod ("Hcl" with "[-HΦ Hdst]") as "_".
         { rewrite /cached_wf_inv.
           iExists ver, log'', actual'', backup'vs, marked_backup₂, backup₂, backup', index''.
-          iFrame "∗ # %". }
+          iFrame "∗ # %". rewrite Nat.Odd_div2 // Nat.Odd_succ //. }
         iModIntro.
         wp_pures.
         rewrite bool_decide_eq_true_2; last done.
@@ -1325,6 +1331,8 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         wp_pures.
         iApply ("HΦ" with "[$Hdst]").
         iFrame "∗ # %".
+        rewrite (Nat.Even_div2 ver'); first last.
+        { done. }
         auto.
   Qed.
 
