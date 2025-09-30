@@ -531,13 +531,6 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             do 2 rewrite lookup_insert_ne //. auto. }
           { auto. }
   Qed.
-      
-      eapply Forall_impl; eauto .
-        intros l' Horder.
-        rewrite /gmap_mono. rewrite /gmap_mono in Horder.
-        intros j k.
-        rewrite lookup_insert_ne //.
-
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ : gname) (l : loc) : iProp Σ :=
     ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat) (idx : nat),
@@ -1831,12 +1824,11 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
                   eapply map_Forall_lookup_1 in Hcontra; last done.
                   simpl in Hcontra. lia. }
                 { rewrite lookup_insert //. }
-                { apply Forall_impl. }
-                  map_Forall_lookup_1
-
-
-                   }
-                  }
+                { apply gmap_mono_alloc; last done.
+                  rewrite Forall_forall in Hrange₁. auto. }
+                { rewrite map_Forall_insert. split; first done.
+                  eapply map_Forall_impl; eauto.
+                  rewrite -not_elem_of_dom. set_solver. } }
           iModIntro.
           iAssert (⌜backup ≠ ldes'⌝)%I as "%Hnoaba".
           { iIntros (->). 
