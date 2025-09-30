@@ -503,6 +503,42 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* If the version is even, we have full ownership of index and logical state of version *)
       if Nat.even ver then index_auth_own γᵢ (1/4) index ∗ mono_nat_auth_own γᵥ (1/4) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
 
+  Definition gmap_mono (order : gmap loc nat) (loc loc' : loc) :=
+    ∀ i j, 
+      order !! loc = Some i → 
+        order !! loc' = Some j →
+          i ≤ j.
+
+  Lemma gmap_mono_alloc (l : loc) (i : nat) (order : gmap loc nat) (index : list loc) :
+    l ∉ index →
+      StronglySorted (gmap_mono order) index →
+        StronglySorted (gmap_mono (<[l := i]>order)) index.
+  Proof.
+    induction index as [|loc' index IH].
+    - intros. constructor.
+    - intros [Hne Hnmem]%not_elem_of_cons Hsorted.
+      inv Hsorted.
+      constructor.
+      + auto.
+      + clear IH H1.
+        induction index as [| loc'' index IH'].
+        * constructor.
+        * inv H2. rewrite not_elem_of_cons in Hnmem.
+          destruct Hnmem as [Hne' Hnmem].
+          constructor.
+          { rewrite /gmap_mono.
+            intros j k.
+            do 2 rewrite lookup_insert_ne //. auto. }
+          { auto. }
+  Qed.
+      
+      eapply Forall_impl; eauto .
+        intros l' Horder.
+        rewrite /gmap_mono. rewrite /gmap_mono in Horder.
+        intros j k.
+        rewrite lookup_insert_ne //.
+
+
   Definition cached_wf_inv (γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ : gname) (l : loc) : iProp Σ :=
     ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat) (idx : nat),
       (* Ownership of remaining quarter of logical counter *)
@@ -553,12 +589,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* The current backup is indeed more recent than the cached backup *)
       ⌜idx' ≤ idx⌝ ∗ *)
       (* Cache versions are associated with monotonically increasing backups *)
-      ⌜StronglySorted 
-        (λ loc loc', 
-          ∀ i j, 
-            order !! loc = Some i → 
-              order !! loc' = Some j →
-                i ≤ j) index⌝ ∗
+      ⌜StronglySorted (gmap_mono order) index⌝ ∗
       (* The order of the current backup is an upper bound on all others *)
       ⌜map_Forall (λ _ idx', idx' ≤ idx) order⌝.
 
@@ -1651,7 +1682,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
       iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock)" "Hcl".
-      iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ & %index₁' & %order₁ & %idx₁ & >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁ & ●Hγᵢ' & Hord)" "Hcl'".
+      iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ & %index₁' & %order₁ & %idx₁ & >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁ & >●Hγᵢ' & >●Hγₒ & >%Hdomord & >%Hinj₁ & >%Hidx₁ & >%Hmono₁ & >%Hubord₁)" "Hcl'".
       iPoseProof (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as "<-".
       iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
       iCombine "Hγ Hγ'" as "Hγ" gives %[_ [=<-<-]].
@@ -1759,18 +1790,21 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             - rewrite bool_decide_eq_false_2 in Hvers₁; last lia.
               subst. rewrite insert_empty map_Forall_singleton //.
             - rewrite bool_decide_eq_true_2 in Hvers₁; last lia.
-              + rewrite map_Forall_insert.
-                destruct Hvers₁ as (ver_invalid₁ & Hvers₁backup & Hver_invalid_le₁ & Hub & _).
-                split; first done.
-                eapply map_Forall_impl; first done.
-                intros l' ver''.
-                simpl. lia.
-                rewrite -not_elem_of_dom. set_solver. }
-          iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ Hord]") as "_".
-          { rewrite (take_drop_middle _ _ _ Hagree).
-            iFrame. rewrite bool_decide_eq_true_2; last lia.
+              rewrite map_Forall_insert.
+              destruct Hvers₁ as (ver_invalid₁ & Hvers₁backup & Hver_invalid_le₁ & Hub & _).
+              split; first done.
+              eapply map_Forall_impl; first done.
+              intros l' ver''.
+              simpl. lia.
+              rewrite -not_elem_of_dom. set_solver. }
+          iMod (vers_auth_update ldes' (S idx₁) with "●Hγₒ") as "[●Hγₒ ◯Hγₒ]".
+          { rewrite -not_elem_of_dom. set_solver. }
+          iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ $●Hγₒ $●Hγᵢ']") as "_".
+          { rewrite lookup_insert. iExists (S idx₁).
+            rewrite (take_drop_middle _ _ _ Hagree).
+            rewrite bool_decide_eq_true_2; last lia.
             iSplit.
-            { rewrite lookup_insert //. }
+            { done. }
             iNext. iSplit.
             { iApply (registry_inv_mono _ _ _ _ (dom log₁)).
               { set_solver. }
@@ -1785,10 +1819,24 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
               iSplit.
               { iPureIntro. do 2 rewrite dom_insert. set_solver. }
               iPureIntro.
-              exists ver₁.
-              rewrite lookup_insert.
-              repeat split; auto.
-              rewrite bool_decide_eq_true_2 //. }
+              split.
+              - exists ver₁.
+                rewrite lookup_insert.
+                repeat split; auto.
+                rewrite bool_decide_eq_true_2 //.
+              - repeat split.
+                { set_solver. }
+                { apply gmap_injective_insert; last done.
+                  intros [loc Hcontra]%elem_of_map_img.
+                  eapply map_Forall_lookup_1 in Hcontra; last done.
+                  simpl in Hcontra. lia. }
+                { rewrite lookup_insert //. }
+                { apply Forall_impl. }
+                  map_Forall_lookup_1
+
+
+                   }
+                  }
           iModIntro.
           iAssert (⌜backup ≠ ldes'⌝)%I as "%Hnoaba".
           { iIntros (->). 
