@@ -616,7 +616,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       wp_apply (wp_load_offset with "Hcache").
       { apply list_lookup_lookup_total_lt. lia. }
       iMod (index_frag_alloc with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
-      { by rewrite last_lookup Hlenᵢ /= in Hindex. }
+      { by rewrite last_lookup Hlenᵢ in Hindex. }
       iIntros "Hsrc".
       iPoseProof (mono_nat_lb_own_valid with "●Hγᵥ Hlb") as "[%Ha %Hord]".
       iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb'".
@@ -647,10 +647,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       { iPureIntro. by eapply SSorted_cons. }
       { iPureIntro. constructor; first done.
         eapply Forall_impl; eauto. lia. }
-      { simpl. iSplitR "Hcons".
-        - rewrite -Nat.even_spec.
-          iSplitR; first done.
+      { iSplitR "Hcons".
+        - iSplitR; first done.
           iIntros "%Heven'".
+          rewrite Nat.Odd_div2; first last.
+          { rewrite Nat.Odd_succ //. }
+          rewrite -Nat.even_spec in Heven'.
           rewrite Heven' in Hcons.
           iExists backup', _.
           iFrame "∗ # %".

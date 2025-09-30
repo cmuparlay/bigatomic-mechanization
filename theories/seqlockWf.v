@@ -558,6 +558,7 @@ Section seqlock.
       + iMod "Hlock" as "(Hγ & Hγₕ & Hγᵥ & Hdst'' & %Hcons') /=".
         iPoseProof (update_array _ _ _ i v'' with "Hdst''") as "[Hdst'' _]".
         { done. }
+        (* Relies on uniqueness *)
         by iCombine "Hdst Hdst''" gives %[Hfrac%dfrac_valid_own_r <-].
       + iMod "Hlock" as "(Hγₕ & Hγᵥ & Hdst'')".
         iPoseProof (update_array _ _ _ i v'' with "Hdst''") as "[Hdst'' Hacc]".
