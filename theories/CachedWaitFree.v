@@ -1383,6 +1383,17 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     by iFrame.
   Qed.
 
+  Lemma own_auth_split_self' (dq : dfrac) (γ : gname) (m : gmap loc (agree nat)) :
+    own γ (●{dq} m) ==∗ own γ (●{dq} m) ∗ own γ (◯ m).
+  Proof.
+    iIntros "H●".
+    iMod (own_update with "H●") as "[H● H◯]".
+    { apply auth_update_dfrac_alloc with (b := m).
+      - apply _.
+      - reflexivity. }
+    by iFrame.
+  Qed.
+
   Require Import stdpp.fin_maps.
 
   Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
@@ -1417,6 +1428,14 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     rewrite -lookup_fmap lookup_fmap_Some in Hsome.
     destruct Hsome as (x' & <- & Hix').
     by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
+  Lemma map_Forall_subseteq `{Countable K} {V} (m m' : gmap K V) P :
+    m ⊆ m' → map_Forall P m' → map_Forall P m.
+  Proof.
+    rewrite /map_Forall. 
+    intros Hsub HP k v Hsome.
+    by eapply HP, lookup_weaken.
   Qed.
 
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
@@ -1629,6 +1648,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           { rewrite not_elem_of_dom //. }
           iMod (vers_auth_update ldes' ver₁ with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_vers]".
           { rewrite -not_elem_of_dom. set_solver. }
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy]".
           assert (size (<[ldes':=(γₚ', desired)]> log₁) > 1) as Hvers₁multiple.
           { rewrite map_size_insert_None //. lia. }
           iMod (own_auth_split_self with "●Hγₕ") as "[●Hγₕ ◯Hγₕcopy]".
@@ -1719,7 +1739,14 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             iCombine "●Hγₕ ◯Hγₕcopy" gives %(_ & Hvalid%fmap_to_agree_included_subseteq%map_subseteq_size & _)%auth_both_dfrac_valid_discrete.
             rewrite bool_decide_eq_true_2 in Hvers₂; last lia.
             destruct Hvers₂ as (ver'' & Hvers₂lookup & Hlevers₂ & Hub₂ & Hinvalid).
+            iCombine "●Hγ_vers ◯Hγ_verscopy" gives %(_ & Hvalidvers%fmap_to_agree_included_subseteq' & _)%auth_both_dfrac_valid_discrete.
+            eapply map_Forall_subseteq in Hvalidvers; eauto.
+            rewrite map_Forall_insert in Hvalidvers.
+            destruct Hvalidvers as [Hvalidvers _].
+            assert (ver'' = ver) as -> by lia.
 
+
+            Check map_Forall_subseteq.
             iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ]") as "_".
             { iFrame "%". destruct () }
             change 1%Z with (Z.of_nat 1).
