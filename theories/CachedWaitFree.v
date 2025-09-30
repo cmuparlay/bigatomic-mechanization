@@ -504,7 +504,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       if Nat.even ver then index_auth_own γᵢ (1/4) index ∗ mono_nat_auth_own γᵥ (1/4) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ : gname) (l : loc) : iProp Σ :=
-    ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat) (idx idx' : nat),
+    ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat) (idx : nat),
       (* Ownership of remaining quarter of logical counter *)
       mono_nat_auth_own γᵥ (1/2) ver ∗
       (* Ownership of the backup location *)
@@ -690,6 +690,34 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Lemma log_auth_auth_agree γₕ p q (log log' : gmap loc (gname * list val)) :
     log_auth_own γₕ p log -∗
       log_auth_own γₕ q log'  -∗
+        ⌜log = log'⌝.
+  Proof.
+    iIntros "H H'".
+    iCombine "H H'" gives %Hagree%auth_auth_dfrac_op_inv.
+    iPureIntro.
+    apply map_eq.
+    intros i.
+    apply leibniz_equiv, (inj (fmap to_agree)).
+    repeat rewrite -lookup_fmap //.
+  Qed.
+
+  Lemma index_auth_auth_agree γₕ p q (index index' : list loc) :
+    index_auth_own γₕ p index -∗
+      index_auth_own γₕ q index'  -∗
+        ⌜index = index'⌝.
+  Proof.
+    iIntros "H H'".
+    iCombine "H H'" gives %Hagree%auth_auth_dfrac_op_inv.
+    iPureIntro.
+    apply list_eq.
+    intros i.
+    apply leibniz_equiv, (inj (fmap to_agree)).
+    do 2 rewrite -lookup_map_seq_0 -lookup_fmap fmap_map_seq //.
+  Qed.
+
+  Lemma vers_auth_auth_agree γₕ p q (log log' : gmap loc nat) :
+    vers_auth_own γₕ p log -∗
+      vers_auth_own γₕ q log'  -∗
         ⌜log = log'⌝.
   Proof.
     iIntros "H H'".
@@ -1511,10 +1539,10 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     by eapply HP, lookup_weaken.
   Qed.
 
-  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
+  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers γₒ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
       inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
-        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γ_vers l) -∗
+        inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ l) -∗
           lexp ↦∗{dq} expected -∗
             ldes ↦∗{dq'} desired -∗
               <<{ ∀∀ backup actual, value γ backup actual  }>> 
@@ -1529,7 +1557,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       awp_apply (read'_spec with "[//]").
       { done. }
       rewrite /atomic_acc /=.
-      iInv cached_wfN as "(%ver' & %log & %actual & %marked_backup & %backup & %requests & %vers & ●Hγᵥ' & >Hvalidated & >Hγ & >%Hcons & >●Hγₕ & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hvers)" "Hcl".
+      iInv cached_wfN as "(%ver' & %log & %actual & %marked_backup & %backup & %requests & %vers & %index & %order & %idx & ●Hγᵥ' & >Hvalidated & >Hγ & >%Hcons & >●Hγₕ & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hvers & Hord)" "Hcl".
       iMod "AU" as (backup'' actual') "[Hγ' Hlin]".
       rewrite /value.
       iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
@@ -1623,7 +1651,8 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
       iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock)" "Hcl".
-      iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ &  >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁)" "Hcl'".
+      iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ & %index₁' & %order₁ & %idx₁ & >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁ & ●Hγᵢ' & Hord)" "Hcl'".
+      iPoseProof (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as "<-".
       iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
       iCombine "Hγ Hγ'" as "Hγ" gives %[_ [=<-<-]].
       iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁" gives %[_ <-].
@@ -1737,7 +1766,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
                 intros l' ver''.
                 simpl. lia.
                 rewrite -not_elem_of_dom. set_solver. }
-          iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
+          iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ Hord]") as "_".
           { rewrite (take_drop_middle _ _ _ Hagree).
             iFrame. rewrite bool_decide_eq_true_2; last lia.
             iSplit.
