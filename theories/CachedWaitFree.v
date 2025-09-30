@@ -504,7 +504,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       if Nat.even ver then index_auth_own γᵢ (1/4) index ∗ mono_nat_auth_own γᵥ (1/4) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
 
   Definition cached_wf_inv (γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ : gname) (l : loc) : iProp Σ :=
-    ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat),
+    ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup backup' : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat) (idx idx' : nat),
       (* Ownership of remaining quarter of logical counter *)
       mono_nat_auth_own γᵥ (1/2) ver ∗
       (* Ownership of the backup location *)
@@ -538,11 +538,22 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       else vers = ∅⌝ ∗
       (* Own other half of index *)
       index_auth_own γᵢ (1/2) index ∗
+      (* Most recently cached backup *)
+      ⌜last index = Some backup'⌝ ∗
       (* Auth ownership of order sequence *)
       vers_auth_own γₒ 1 order ∗
+      (* The ordering binds every logged backup *)
+      ⌜dom order = dom log⌝ ∗
       (* The order is injective, establishing a total order on backup pointers *)
-      ⌜gmap_injective order⌝.
-
+      ⌜gmap_injective order⌝ ∗
+      (* The current backup is ordered *)
+      ⌜order !! backup = Some idx⌝ ∗
+      (* And so is the old backup corresponding to the cache *)
+      ⌜order !! backup' = Some idx'⌝ ∗
+      (* The current backup is indeed more recent than the cached backup *)
+      ⌜idx' ≤ idx⌝ ∗
+      (* Cache versions are associated with monotonically increasing backups *)
+      ⌜StronglySorted (λ loc loc', order !!! loc < order !!! loc') index⌝.
 
   Global Instance pointsto_array_persistent l vs : Persistent (l ↦∗□ vs).
   Proof.
