@@ -553,7 +553,12 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* The current backup is indeed more recent than the cached backup *)
       ⌜idx' ≤ idx⌝ ∗
       (* Cache versions are associated with monotonically increasing backups *)
-      ⌜StronglySorted (λ loc loc', order !!! loc < order !!! loc') index⌝.
+      ⌜StronglySorted 
+        (λ loc loc', 
+          ∀ i j, 
+            order !! loc = Some i → 
+              order !! loc' = Some j →
+                i ≤ j) index⌝.
 
   Global Instance pointsto_array_persistent l vs : Persistent (l ↦∗□ vs).
   Proof.
@@ -933,10 +938,10 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
   Proof. done. Qed.
 
   Definition is_cached_wf (v : val) (γ : gname) (n : nat) : iProp Σ :=
-    ∃ (dst : loc) (γₕ γᵥ γᵣ γᵢ γ_vers : gname),
+    ∃ (dst : loc) (γₕ γᵥ γᵣ γᵢ γₒ γ_vers : gname),
       ⌜v = #dst⌝ ∗
       inv readN (read_inv γ γᵥ γₕ γᵢ dst n) ∗
-      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵣ γ_vers dst).
+      inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ dst).
 
   Lemma array_persist l vs : l ↦∗ vs ==∗ l ↦∗□ vs.
   Proof.
@@ -947,6 +952,30 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       + iApply (pointsto_persist with "Hl").
       + iApply ("IH" with "Hrest").
   Qed.
+
+  Lemma gmap_injective_singleton `{Countable K} {V} (k : K) (v : V) :
+    gmap_injective {[k := v]}.
+  Proof.
+    rewrite /gmap_injective.
+    intros i j v'. do 2 rewrite lookup_singleton_Some.
+    by intros [<- <-] [<- _].
+  Qed.
+
+Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gmap K V) :
+  v ∉ map_img (SA:=gset V) m →
+    gmap_injective m →
+      gmap_injective (<[k := v]>m).
+  Proof.
+    rewrite /gmap_injective. intros Hfresh Hinj.
+    intros i j v'.
+    destruct (decide (i = k)) as [-> | Hne]; destruct (decide (j = k)) as [-> | Hne'].
+    - rewrite lookup_insert //.
+    - rewrite lookup_insert lookup_insert_ne //.
+      intros [=<-] Hmj. by apply not_elem_of_map_img_1 with (i := j) in Hfresh.
+    - rewrite lookup_insert lookup_insert_ne //.
+      intros Hsome [=<-]. by apply not_elem_of_map_img_1 with (i := i) in Hfresh.
+    - do 2 rewrite lookup_insert_ne //. apply Hinj.
+  Qed.    
 
   Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
     length vs = n → n > 0 →
@@ -974,10 +1003,10 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     { auto. }
     iIntros "[[Hcache Hcache'] Hsrc]". wp_pures.
     iMod (ghost_var_alloc (backup, vs)) as "(%γ & Hγ & Hγ' & Hγ'')".
-    replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
     iMod (mono_nat_own_alloc 0) as "(%γᵥ & (Hγᵥ & Hγᵥ' & Hγᵥ'') & _)".
-    iMod (own_alloc (● map_seq O (to_agree <$> [backup]))) as "(%γᵢ & Hγᵢ & Hγᵢ')".
+    iMod (own_alloc (● map_seq O (to_agree <$> [backup]))) as "(%γᵢ & Hγᵢ & Hγᵢ' & Hγᵢ'')".
     { by apply auth_auth_valid, singleton_valid. }
+    replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
     iMod token_alloc as "[%γₜ Hγₜ]".
     iMod (own_alloc (● {[ backup := to_agree (γₜ, vs) ]})) as "(%γₕ & Hγₕ & Hγₕ')".
     { by apply auth_auth_valid, singleton_valid. }
@@ -987,7 +1016,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iMod (array_persist with "Hbackup") as "#Hbackup".
     iDestruct "Hvalidated" as "[Hvalidated Hvalidated']".
     replace (1 / 2 / 2)%Qp with (1/4)%Qp by compute_done.
-    iMod (inv_alloc readN _ (read_inv γ γᵥ γₕ γᵢ l n) with "[$Hvalidated $Hγ' $Hγᵥ' Hγᵥ'' $Hγₕ Hγᵢ $Hγᵢ' $Hcache Hcache' Hγₜ $Hversion $Hbackup]") as "#Hreadinv".
+    iMod (inv_alloc readN _ (read_inv γ γᵥ γₕ γᵢ l n) with "[$Hvalidated $Hγ' $Hγᵥ' Hγᵥ'' $Hγₕ Hγᵢ' $Hγᵢ'' $Hcache Hcache' Hγₜ $Hversion $Hbackup]") as "#Hreadinv".
     { iExists backup. iFrame "∗ # %".
       simpl.
       iSplit; first done.
@@ -995,9 +1024,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       { iPureIntro. right. split.
         { done. }
         { rewrite -Nat.even_spec /= //. } }
-      iSplitR "Hγₜ".
-      { rewrite map_Forall_singleton //. }
       iSplit.
+      { rewrite map_Forall_singleton //. }
+      iSplitL "Hγₜ".
       { rewrite log_tokens_singleton. iFrame "∗ #". }
       iSplit.
       { rewrite lookup_singleton //=. }
@@ -1010,8 +1039,20 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       rewrite lookup_singleton //. }
     iMod (own_alloc (● ∅)) as "[%γ_vers Hγ_vers]".
     { by apply auth_auth_valid. }
-    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵣ γ_vers l) with "[$Hγ'' $Hγₕ' $Hγᵣ $Hvalidated' $Hγᵥ Hγ_vers]") as "#Hinv".
-    { iExists ∅. iFrame. rewrite /registry_inv lookup_singleton /=. rewrite bool_decide_eq_false_2.
+    iMod (own_alloc (● {[ backup := to_agree O ]})) as "[%γₒ Hγₒ]".
+    { by apply auth_auth_valid, singleton_valid. }
+    iMod (inv_alloc cached_wfN _ (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ l) with "[$Hγ'' $Hγₕ' $Hγᵣ $Hvalidated' $Hγᵥ Hγ_vers Hγₒ $Hγᵢ]") as "#Hinv".
+    { iExists backup, ∅, {[ backup := O ]}, O, O. 
+      rewrite /registry_inv /vers_auth_own map_fmap_singleton lookup_singleton /=. iFrame.
+      rewrite bool_decide_eq_false_2; first last.
+      { rewrite map_size_singleton. lia. }
+      iPureIntro. repeat split; auto with set_solver.
+      - set_solver.
+      - set_solver.
+      - set_solver.
+      rewrite /vers_auth_own map_fmap_singleton.
+      iFrame.
+
     { repeat iSplit; auto. iPureIntro. set_solver. }
     rewrite map_size_singleton. lia. }
     iModIntro.
