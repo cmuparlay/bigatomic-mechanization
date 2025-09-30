@@ -98,18 +98,19 @@ Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO (prodO gnameO gn
 
 Definition usedUR := authUR $ gsetUR $ locO.
 Definition invalidUR := authUR $ gmapUR locO $ agreeR natO.
+Definition orderUR := authUR $ gmapUR locO $ agreeR natO.
 
 Class cached_wfG (Σ : gFunctors) := {
   cached_wf_heapGS :: heapGS Σ;
   cached_wf_logUR :: inG Σ logUR;
   cached_wf_indexUR :: inG Σ indexUR;
-  cached_wf_usedUR :: inG Σ usedUR;
   cached_wf_requestRegUR :: inG Σ requestRegUR;
   cached_wf_mono_natG :: mono_natG Σ;
   cached_wf_ghost_varG_bool :: ghost_varG Σ bool;
   cached_wf_ghost_varG_loc_val :: ghost_varG Σ (loc * list val);
   cached_wf_tokenG :: tokenG Σ;
   cached_wf_invalidUR :: inG Σ invalidUR;
+  cached_wf_orderUR :: inG Σ orderUR;
 }.
 
 Section cached_wf.
@@ -453,6 +454,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     by iDestruct (array_pointsto_valid with "Hl") as %Hvalid.
   Qed.
 
+  Definition gmap_injective {K A} `{Countable K} (m : gmap K A) :=
+    ∀ i j v, m !! i = Some v → m !! j = Some v → i = j.
+
   Definition read_inv (γ γᵥ γₕ γᵢ : gname) (l : loc) (len : nat) : iProp Σ :=
     ∃ (ver : nat) (log : gmap loc (gname * list val)) (actual cache : list val) (marked_backup : val) (backup backup' : loc) (index : list loc),
       (* Physical state of version *)
@@ -473,7 +477,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       ⌜length cache = len⌝ ∗
       (* Every logged value is of correct length *)
       ⌜map_Forall (λ _ '(_, value), length value = len) log⌝ ∗
-      (* The version number is twice (or one greater than twice) than number of versions *)
+      (* The version number is twice (or one greater than twice) than number of versions *) 
       (* For every pair of (backup', cache') in the log, we have ownership of the corresponding points-to *)
       log_tokens log ∗
       (* The last item in the log corresponds to the currently installed backup pointer *)
@@ -481,14 +485,14 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       (* Store half authoritative ownership of the log in the read invariant *)
       log_auth_own γₕ (1/2) log ∗
       (* The is a mapping in the index for every version *)
-      ⌜length index = S (Nat.div2 ver)⌝ ∗
+      ⌜length index = S (Nat.div2 (S ver))⌝ ∗
       (* Because the mapping from versions to log entries is injective, the index should not contain duplicates *)
       ⌜NoDup index⌝ ∗
       (* Moreover, every index should be less than the length of the log (to ensure every version
          corresponds to a valid entry) *)
       ⌜Forall (.∈ dom log) index⌝ ∗
       (* Ownership of at least half of the index *)
-      index_auth_own γᵢ (1/2) index ∗
+      index_auth_own γᵢ (1/4) index ∗
       (* Ownership of at least half of the counter *)
       mono_nat_auth_own γᵥ (1/4) ver ∗
       (* Ownership of at least half of the physical state of the cache *)
@@ -497,10 +501,10 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
          stores the cache. Otherwise it must not be valid *)
       ⌜if Nat.even ver then snd <$> log !! backup' = Some cache else marked_backup = InjLV #backup⌝ ∗
       (* If the version is even, we have full ownership of index and logical state of version *)
-      if Nat.even ver then index_auth_own γᵢ (1/2) index ∗ mono_nat_auth_own γᵥ (1/4) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
+      if Nat.even ver then index_auth_own γᵢ (1/4) index ∗ mono_nat_auth_own γᵥ (1/4) ver ∗(l +ₗ 2) ↦∗{# 1/2} cache else True.
 
-  Definition cached_wf_inv (γ γᵥ γₕ γᵣ γ_vers : gname) (l : loc) : iProp Σ :=
-    ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat),
+  Definition cached_wf_inv (γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ : gname) (l : loc) : iProp Σ :=
+    ∃ (ver : nat) log (actual : list val) (marked_backup : val) (backup : loc) requests (vers : gmap loc nat) (index : list loc) (order : gmap loc nat),
       (* Ownership of remaining quarter of logical counter *)
       mono_nat_auth_own γᵥ (1/2) ver ∗
       (* Ownership of the backup location *)
@@ -531,7 +535,14 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           map_Forall (λ _ ver'', ver'' ≤ ver') vers ∧
           (* If the version at which the backup was swapped in is the current version, then the backup cannot be validated *)
           if bool_decide (ver = ver') then marked_backup = InjLV #backup else True)
-      else vers = ∅⌝.
+      else vers = ∅⌝ ∗
+      (* Own other half of index *)
+      index_auth_own γᵢ (1/2) index ∗
+      (* Auth ownership of order sequence *)
+      vers_auth_own γₒ 1 order ∗
+      (* The order is injective, establishing a total order on backup pointers *)
+      ⌜gmap_injective order⌝.
+
 
   Global Instance pointsto_array_persistent l vs : Persistent (l ↦∗□ vs).
   Proof.
@@ -644,7 +655,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iExists backup', _.
           iFrame "∗ # %".
           rewrite Nat.add_0_r.
-          rewrite list_lookup_lookup_total_lt.
+          rewrite list_lookup_lookup_total_lt //.
           * iPureIntro. do 2 f_equal.
             rewrite -lookup_fmap lookup_fmap_Some in Hcons.
             destruct Hcons as ([γₜ' vs] & Heq & Hlookup).
@@ -1712,7 +1723,6 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             wp_bind (CmpXchg _ _ _).
             iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
             iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂)" "Hcl'".
-            iPoseProof ("HΦ" with "[$]") as "HΦ".
             iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
             iCombine "●Hγₕ ●Hγₕ'" gives %G.
             destruct (decide (ver₂ = ver)) as [-> | Hneq]; first last.
@@ -1725,7 +1735,9 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
               iApply fupd_mask_intro.
               { set_solver. }
               iIntros ">_ !>".
-              by wp_pures. }
+              wp_pures.
+              iModIntro.
+              iApply ("HΦ" with "[$]"). }
             wp_cmpxchg_suc.
             iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
             assert (ver₁ = ver) as -> by lia.
@@ -1763,6 +1775,28 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
               rewrite Heven /=.
               iFrame "∗ %".
               auto. }
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            wp_pures.
+            wp_apply (wp_array_copy_to_half _ _ _ _ _ _ cache₂ desired with "[//] [$] [-]"); try done.
+            { lia. }
+            iIntros "!> [Hdst Hsrc]".
+            wp_pures.
+            wp_bind (_ <- _)%E.
+            iInv readN as "(%ver₃ & %log₃ & %actual₃ & %cache₃ & %marked_backup₃ & %backup₃ & %backup₃' & %index₃ & >Hver & >Hbackup & >Hγ & >#□Hbackup₃ & >%Hindex₃ & >%Hvalidated₃ & >%Hlenactual₃ & >%Hlencache₃ & >%Hloglen₃ & Hlogtokens & >%Hlogged₃ & >●Hγₕ & >%Hlenᵢ₃ & >%Hnodup₃ & >%Hrange₃ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₃ & Hlock)" "Hcl".
+            iInv cached_wfN as "(%ver'' & %log₃' & %actual₃' & %marked_backup₃' & %backup₃'' & %requests₃ & %vers₃ & >●Hγᵥ'' & >Hbackup₃' & >Hγ' & >%Hcons₃' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₃ & >%Hvers₃)" "Hcl'".
+            wp_store.
+            change 2%Z with (Z.of_nat 2). simplify_eq.
+            iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ ->].
+            iDestruct (mono_nat_auth_own_agree with "●Hγᵥ' ●Hγᵥ''") as %[_ <-].
+            iCombine "●Hγᵥ ●Hγᵥ'" as "●Hγᵥ".
+            rewrite Qp.quarter_quarter.
+            iCombine "●Hγᵥ ●Hγᵥ''" as "●Hγᵥ".
+            iMod (mono_nat_own_update (S (S ver)) with "●Hγᵥ") as "[Hγᵥ #Hlb'']".
+            iMod (index_auth_update )
+            { lia. }
+
             
             iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
             { rewrite /seqlock_inv. iExists (S ver), history', vs'', registry'.
