@@ -1383,24 +1383,42 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     by iFrame.
   Qed.
 
-Require Import stdpp.fin_maps.
+  Require Import stdpp.fin_maps.
 
-Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
-        (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
-Proof.
-  intros Hincl. apply map_subseteq_spec.
-  intros i x Hix.
-  rewrite lookup_included in Hincl.
-  specialize (Hincl i).
-  do 2 rewrite lookup_fmap in Hincl.
-  rewrite Hix /= in Hincl.
-  apply Some_included_is_Some in Hincl as H.
-  destruct H as [y Hsome].
-  rewrite Hsome Some_included_total in Hincl.
-  rewrite -lookup_fmap lookup_fmap_Some in Hsome.
-  destruct Hsome as (x' & <- & Hix').
-  by apply to_agree_included, leibniz_equiv in Hincl as <-.
-Qed.
+  Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
+          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+  Proof.
+    intros Hincl. apply map_subseteq_spec.
+    intros i x Hix.
+    rewrite lookup_included in Hincl.
+    specialize (Hincl i).
+    do 2 rewrite lookup_fmap in Hincl.
+    rewrite Hix /= in Hincl.
+    apply Some_included_is_Some in Hincl as H.
+    destruct H as [y Hsome].
+    rewrite Hsome Some_included_total in Hincl.
+    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+    destruct Hsome as (x' & <- & Hix').
+    by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
+  Lemma fmap_to_agree_included_subseteq' (m m' : gmap loc nat) :
+          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+  Proof.
+    intros Hincl. apply map_subseteq_spec.
+    intros i x Hix.
+    rewrite lookup_included in Hincl.
+    specialize (Hincl i).
+    do 2 rewrite lookup_fmap in Hincl.
+    rewrite Hix /= in Hincl.
+    apply Some_included_is_Some in Hincl as H.
+    destruct H as [y Hsome].
+    rewrite Hsome Some_included_total in Hincl.
+    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+    destruct Hsome as (x' & <- & Hix').
+    by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
       inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
@@ -1614,6 +1632,18 @@ Qed.
           assert (size (<[ldes':=(γₚ', desired)]> log₁) > 1) as Hvers₁multiple.
           { rewrite map_size_insert_None //. lia. }
           iMod (own_auth_split_self with "●Hγₕ") as "[●Hγₕ ◯Hγₕcopy]".
+          assert (map_Forall (λ _ ver'', ver'' ≤ ver₁) (<[ldes':=ver₁]> vers₁)) as Hub₁.
+          { destruct (decide (size log₁ = 1)) as [Hsing | Hsing].
+            - rewrite bool_decide_eq_false_2 in Hvers₁; last lia.
+              subst. rewrite insert_empty map_Forall_singleton //.
+            - rewrite bool_decide_eq_true_2 in Hvers₁; last lia.
+              + rewrite map_Forall_insert.
+                destruct Hvers₁ as (ver_invalid₁ & Hvers₁backup & Hver_invalid_le₁ & Hub & _).
+                split; first done.
+                eapply map_Forall_impl; first done.
+                intros l' ver''.
+                simpl. lia.
+                rewrite -not_elem_of_dom. set_solver. }
           iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
           { rewrite (take_drop_middle _ _ _ Hagree).
             iFrame. rewrite bool_decide_eq_true_2; last lia.
@@ -1632,28 +1662,11 @@ Qed.
               iFrame. }
               iSplit.
               { iPureIntro. do 2 rewrite dom_insert. set_solver. }
-              destruct (decide (size log₁ = 1)) as [Hsing | Hsing].
-              - rewrite bool_decide_eq_false_2 in Hvers₁; last lia.
-                subst.
-                iPureIntro.
-                exists ver₁.
-                rewrite lookup_insert.
-                repeat split; auto.
-                + rewrite insert_empty map_Forall_singleton //.
-                + rewrite bool_decide_eq_true_2 //.
-              - rewrite bool_decide_eq_true_2 in Hvers₁; last lia.
-                iPureIntro.
-                exists ver₁.
-                rewrite lookup_insert.
-                repeat split; auto.
-                + rewrite map_Forall_insert.
-                  * destruct Hvers₁ as (ver_invalid₁ & Hvers₁backup & Hver_invalid_le₁ & Hub & _).
-                    split; first done.
-                    eapply map_Forall_impl; first done.
-                    intros l' ver''.
-                    simpl. lia.
-                  * rewrite -not_elem_of_dom. set_solver.
-                + rewrite bool_decide_eq_true_2 //. }
+              iPureIntro.
+              exists ver₁.
+              rewrite lookup_insert.
+              repeat split; auto.
+              rewrite bool_decide_eq_true_2 //. }
           iModIntro.
           iAssert (⌜backup ≠ ldes'⌝)%I as "%Hnoaba".
           { iIntros (->). 
@@ -1680,6 +1693,8 @@ Qed.
             iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
             iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂)" "Hcl'".
             iPoseProof ("HΦ" with "[$]") as "HΦ".
+            iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+            iCombine "●Hγₕ ●Hγₕ'" gives %G.
             destruct (decide (ver₂ = ver)) as [-> | Hneq]; first last.
             { wp_cmpxchg_fail.
               { intros [=]. lia. }
@@ -1702,9 +1717,11 @@ Qed.
             iMod (mono_nat_own_update (S ver) with "●Hγᵥ") as "[(●Hγᵥ & ●Hγᵥ' & ●Hγᵥ'') #Hlb']".
             { lia. }
             iCombine "●Hγₕ ◯Hγₕcopy" gives %(_ & Hvalid%fmap_to_agree_included_subseteq%map_subseteq_size & _)%auth_both_dfrac_valid_discrete.
-            assert (size log₂ > 1) as Hsize₂ by lia.
+            rewrite bool_decide_eq_true_2 in Hvers₂; last lia.
+            destruct Hvers₂ as (ver'' & Hvers₂lookup & Hlevers₂ & Hub₂ & Hinvalid).
+
             iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ]") as "_".
-            { iFrame "%". }
+            { iFrame "%". destruct () }
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
             iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%H".
