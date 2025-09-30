@@ -522,7 +522,7 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
       ⌜dom vers ⊂ dom log⌝ ∗
       (* Only atomics after the first have read in invalid version after being swapped in *)
       ⌜if bool_decide (1 < size log) then
-        ∃ ver' : nat,
+        (∃ ver' : nat,
           (* Version at which backup was swapped in *)
           vers !! backup = Some ver' ∧
           (* It is a lower bound on the current version *)
@@ -530,8 +530,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           (* The version at which the current backup was swapped in is an upper bound on the versions of all previous backups *)
           map_Forall (λ _ ver'', ver'' ≤ ver') vers ∧
           (* If the version at which the backup was swapped in is the current version, then the backup cannot be validated *)
-          if bool_decide (ver = ver') then marked_backup = InjLV #backup else True
-      else True⌝.
+          if bool_decide (ver = ver') then marked_backup = InjLV #backup else True)
+      else vers = ∅⌝.
 
   Global Instance pointsto_array_persistent l vs : Persistent (l ↦∗□ vs).
   Proof.
@@ -1368,6 +1368,10 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
     iFrame "∗ #".
   Qed.
 
+  (* Lemma foo (x : nat) (X Y : gset nat) : x ∉ Y → X ⊂ Y → {[ x ]} ∪ X ⊂ {[ x ]} ∪ Y.
+  Proof.
+    intros. set_solver. *)
+
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
       inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
@@ -1574,29 +1578,51 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           { assert (size log₁ ≠ 0); last lia.
             rewrite map_size_ne_0_lookup.
             naive_solver. }
+          assert (ldes' ∉ dom log₁) as Hldes'freshdom.
+          { rewrite not_elem_of_dom //. }
           iMod (vers_auth_update ldes' ver₁ with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_vers]".
-          { rewrite -not_elem_of_dom.
-            assert (ldes' ∉ dom log₁); last set_solver.
-            rewrite not_elem_of_dom //. }
-          iMod ("Hcl'" with "[$●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
+          { rewrite -not_elem_of_dom. set_solver. }
+          iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ]") as "_".
           { rewrite (take_drop_middle _ _ _ Hagree).
             iFrame. rewrite map_size_insert_None; last done.
-            rewrite bool_decide_eq_true_2; first last.
-            { lia. }
-            iExists (<[ldes' := ver₁]>ver)
+            rewrite bool_decide_eq_true_2; last lia.
             iSplit.
             { rewrite lookup_insert //. }
-            iNext.
-            iApply (registry_inv_mono _ _ _ _ (dom log₁)).
-            { set_solver. }
-            rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv.
-            iFrame.
-            rewrite /request_inv.
-            iFrame "% #".
-            rewrite bool_decide_eq_false_2; last first.
-            { intros <-. congruence. }
-            rewrite bool_decide_eq_false_2; last done.
-            iFrame. }
+            iNext. iSplit.
+            { iApply (registry_inv_mono _ _ _ _ (dom log₁)).
+              { set_solver. }
+              rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv.
+              iFrame.
+              rewrite /request_inv.
+              iFrame "% #".
+              rewrite bool_decide_eq_false_2; last first.
+              { intros <-. congruence. }
+              rewrite bool_decide_eq_false_2; last done.
+              iFrame. }
+              iSplit.
+              { iPureIntro. do 2 rewrite dom_insert. set_solver. }
+              destruct (decide (size log₁ = 1)) as [Hsing | Hsing].
+              - rewrite bool_decide_eq_false_2 in Hvers₁; last lia.
+                subst.
+                iPureIntro.
+                exists ver₁.
+                rewrite lookup_insert.
+                repeat split; auto.
+                + rewrite insert_empty map_Forall_singleton //.
+                + rewrite bool_decide_eq_true_2 //.
+              - rewrite bool_decide_eq_true_2 in Hvers₁; last lia.
+                iPureIntro.
+                exists ver₁.
+                rewrite lookup_insert.
+                repeat split; auto.
+                + rewrite map_Forall_insert.
+                  * destruct Hvers₁ as (ver_invalid₁ & Hvers₁backup & Hver_invalid_le₁ & Hub & _).
+                    split; first done.
+                    eapply map_Forall_impl; first done.
+                    intros l' ver''.
+                    simpl. lia.
+                  * rewrite -not_elem_of_dom. set_solver.
+                + rewrite bool_decide_eq_true_2 //. }
           iModIntro.
           iAssert (⌜backup ≠ ldes'⌝)%I as "%Hnoaba".
           { iIntros (->). 
@@ -1605,7 +1631,6 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
           iMod (array_persist with "Hldes'") as "#Hldes'".
           iPoseProof (log_tokens_update with "Hlogtokens Hγₚ' Hldes'") as "Hlogtokens".
           { done. }
-          iMod (invalid_auth_update_alloc ver₁ with "●Hγ_invalid") as "[●Hγ_invalid #◯Hγ_invalid]".
           iMod ("Hcl" with "[●Hγ_invalid $Hγ' $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hbackup₁' $Hver $●Hγₕ']") as "_".
           { iFrame "% #". iExists ({[ver₁]} ∪ invalid₁). iFrame. repeat iSplit; auto.
             { iPureIntro. left. split; first done. set_solver. }
