@@ -1741,7 +1741,8 @@ Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) 
             destruct Hvers₂ as (ver'' & Hvers₂lookup & Hlevers₂ & Hub₂ & Hinvalid).
             iCombine "●Hγ_vers ◯Hγ_verscopy" gives %(_ & Hvalidvers%fmap_to_agree_included_subseteq' & _)%auth_both_dfrac_valid_discrete.
             eapply map_Forall_subseteq in Hvalidvers; eauto.
-            rewrite map_Forall_insert in Hvalidvers.
+            rewrite map_Forall_insert in Hvalidvers; first last.
+            { rewrite -not_elem_of_dom //. set_solver. }
             destruct Hvalidvers as [Hvalidvers _].
             assert (ver'' = ver) as -> by lia.
 
