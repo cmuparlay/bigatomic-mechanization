@@ -168,6 +168,8 @@ Section cached_wf.
 
   Definition index_auth_own γᵢ (q : Qp) (index : list loc) := own γᵢ (●{#q} map_seq 0 (to_agree <$> index)).
 
+  Definition index_frag_own' γ (index : list loc) := own γ (◯ map_seq 0 (to_agree <$> index)).
+
   Definition log_auth_own γᵥ (q : Qp) (log : gmap loc (gname * list val)) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
 
   Definition vers_auth_own γᵥ (q : Qp) (log : gmap loc nat) := own γᵥ (●{#q} (@fmap _ gmap_fmap _ _ to_agree log)).
@@ -297,12 +299,57 @@ Section cached_wf.
     rewrite -lookup_fmap /= Hvs'' //.
   Qed.
 
-Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) (q : Qp) : 
+  Lemma index_auth_frag_agree (γ : gname) (i : nat) (l : loc) (index : list loc) (q : Qp) : 
     index_auth_own γ q index -∗
       index_frag_own γ i l -∗
         ⌜index !! i = Some l⌝.
   Proof.
     iIntros "H● H◯".
+    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
+    assert (✓ y) as Hy.
+    { by eapply lookup_valid_Some; eauto. }
+    pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
+    rewrite -Hvs'' to_agree_included in H. simplify_eq.
+    iPureIntro. apply leibniz_equiv, (inj (fmap to_agree)).
+    rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
+  Qed.
+
+  (* Lemma map_seq_0_included {A} (l l' : list A) :
+    map_seq (M := gmap nat A) O l ⊆ map_seq O l' →
+      l `prefix_of` l'.
+  Proof.
+    intros Hincl.  *)
+
+  Lemma prefix_lookup {A} (xs ys : list A) :
+    (∀ i x, xs !! i = Some x → ys !! i = Some x) → xs `prefix_of` ys.
+  Proof.
+    rewrite /prefix. generalize dependent ys.
+    induction xs as [| x xs IH].
+    - eauto.
+    - intros ys Hpoint. simpl.
+      destruct ys as [| y ys].
+      { specialize (Hpoint 0 x). intuition. discriminate. }
+      epose proof (IH ys _) as [ys' ->]. Unshelve.
+      + specialize (Hpoint 0 x). simpl in *.
+        intuition. simplify_eq. eauto.
+      + intros i x' Hlookup.
+        specialize (Hpoint (S i) x').
+        auto.
+  Qed.
+
+  Lemma index_auth_frag_agree' (γ : gname) (i : nat) (l : loc) (index index' : list loc) (q : Qp) : 
+    index_auth_own γ q index -∗
+      index_frag_own' γ index' -∗
+        ⌜index' ⊆ index⌝.
+  Proof.
+    iIntros "H● H◯".
+    iCombine "H● H◯" gives %(_ & Hvalid & _)%auth_both_dfrac_valid_discrete.
+    do 2 rewrite -fmap_map_seq in Hvalid.
+    rewrite lookup_included in Hvalid.
+    rewrite subseteq_spec.
+
+    rewrite to_agree_included in Hvalid.
+    rewrite auth_both_valid_discrete in Hvalid.
     iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
     assert (✓ y) as Hy.
     { by eapply lookup_valid_Some; eauto. }
@@ -1531,6 +1578,17 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     by iFrame.
   Qed.
 
+  Lemma own_auth_split_self'' (dq : dfrac) (γ : gname) (m : gmap nat (agree loc)) :
+    own γ (●{dq} m) ==∗ own γ (●{dq} m) ∗ own γ (◯ m).
+  Proof.
+    iIntros "H●".
+    iMod (own_update with "H●") as "[H● H◯]".
+    { apply auth_update_dfrac_alloc with (b := m).
+      - apply _.
+      - reflexivity. }
+    by iFrame.
+  Qed.
+
   Require Import stdpp.fin_maps.
 
   Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
@@ -1551,6 +1609,23 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
   Qed.
 
   Lemma fmap_to_agree_included_subseteq' (m m' : gmap loc nat) :
+          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+  Proof.
+    intros Hincl. apply map_subseteq_spec.
+    intros i x Hix.
+    rewrite lookup_included in Hincl.
+    specialize (Hincl i).
+    do 2 rewrite lookup_fmap in Hincl.
+    rewrite Hix /= in Hincl.
+    apply Some_included_is_Some in Hincl as H.
+    destruct H as [y Hsome].
+    rewrite Hsome Some_included_total in Hincl.
+    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+    destruct Hsome as (x' & <- & Hix').
+    by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
+  Lemma fmap_to_agree_included_subseteq'' (m m' : gmap nat loc) :
           (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
   Proof.
     intros Hincl. apply map_subseteq_spec.
@@ -1690,6 +1765,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ & %index₁' & %order₁ & %idx₁ & >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁ & >●Hγᵢ' & >●Hγₒ & >%Hdomord & >%Hinj₁ & >%Hidx₁ & >%Hmono₁ & >%Hubord₁)" "Hcl'".
       iPoseProof (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as "<-".
       iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
+      iMod (own_auth_split_self'' with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
       iCombine "Hγ Hγ'" as "Hγ" gives %[_ [=<-<-]].
       iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁" gives %[_ <-].
       iPoseProof (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as "<-".
@@ -1881,7 +1957,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
               iIntros ">_ !>".
               wp_pures.
               iModIntro.
-              iApply ("HΦ" with "[$]"). }
+              iApply ("HΦ" with "[$]"). } 
             wp_cmpxchg_suc.
             iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
             assert (ver₁ = ver) as -> by lia.
@@ -1906,13 +1982,16 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             iCombine "●Hγᵢ ●Hγᵢ''" as "●Hγᵢ".
             rewrite Qp.quarter_quarter.
             iCombine "●Hγᵢ ●Hγᵢ'" as "●Hγᵢ".
-            iMod (index_auth_update ldes' with "●Hγᵢ") as "[(●Hγᵢ & ●Hγᵢ' & ●Hγᵢ'') ◯Hγᵢ]".
+            iCombine "●Hγᵢ ◯Hγᵢ" gives %(_ & Hvalidindex%fmap_to_agree_included_subseteq'' & _)%auth_both_dfrac_valid_discrete.
+
+            iMod (index_auth_update ldes' with "●Hγᵢ") as "[(●Hγᵢ & ●Hγᵢ' & ●Hγᵢ'') ◯Hγᵢ₂]".
             iCombine "Hbackup Hbackup₂'" gives %[_ ->].
             replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
             iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ $●Hγᵢ $●Hγₒ]") as "_".
-            { iFrame "%". iPureIntro. rewrite bool_decide_eq_true_2; last lia.
-
-              exists ver. repeat split; auto.
+            { iFrame "%". iSplit; first last.
+              { iPureIntro. apply StronglySorted_snoc.
+                done. }
+              iPureIntro. rewrite bool_decide_eq_true_2; last lia.exists ver. repeat split; auto.
               rewrite bool_decide_eq_false_2 //. }
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
