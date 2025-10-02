@@ -603,13 +603,6 @@ Section cached_wf.
         order !! loc' = Some j →
           i ≤ j.
 
-
-  Require Import stdpp.sorting.
-
-  Check Sorted_reverse.
-
-  Check StronglySorted.
-
   Lemma gmap_mono_alloc (l : loc) (i : nat) (order : gmap loc nat) (index : list loc) :
     l ∉ index →
       StronglySorted (gmap_mono order) index →
@@ -633,6 +626,33 @@ Section cached_wf.
           { auto. }
   Qed.
 
+  Lemma StronglySorted_subseteq (order order' : gmap loc nat) (index : list loc) :
+    order ⊆ order' →
+      Forall (.∈ dom order) index →
+        StronglySorted (gmap_mono order) index →
+          StronglySorted (gmap_mono order') index.
+  Proof.
+    intros Hsub Hdom Hssorted.
+    induction index as [| l index IH].
+    - constructor.
+    - inv Hdom. inv Hssorted. constructor.
+      + auto.
+      + clear IH H3.
+        induction index as [| l' index IH].
+        * constructor.
+        * inv H2. inv H4.
+          constructor.
+          { intros i j Hi Hj.
+            apply elem_of_dom in H1 as [i' Hi'].
+            apply elem_of_dom in H3 as [j' Hj'].
+            rewrite map_subseteq_spec in Hsub.
+            apply Hsub in Hi' as Hi''.
+            apply Hsub in Hj' as Hj''.
+            simplify_eq.
+            by apply H2. }
+          { auto. }
+  Qed.
+
   Lemma StronglySorted_impl {A} (Q R : A → A → Prop) (l : list A) :
     (∀ x y, Q x y → R x y) →
       StronglySorted Q l →
@@ -645,28 +665,6 @@ Section cached_wf.
       + done.
       + eapply Forall_impl; eauto.
   Qed. 
-
-  Lemma gmap_mono_subseteq (l : loc) (i : nat) (order order' : gmap loc nat) (index : list loc) :
-      StronglySorted (gmap_mono order) index →
-        StronglySorted (gmap_mono (<[l := i]>order)) index.
-  Proof.
-    induction index as [|loc' index IH].
-    - intros. constructor.
-    - intros [Hne Hnmem]%not_elem_of_cons Hsorted.
-      inv Hsorted.
-      constructor.
-      + auto.
-      + clear IH H1.
-        induction index as [| loc'' index IH'].
-        * constructor.
-        * inv H2. rewrite not_elem_of_cons in Hnmem.
-          destruct Hnmem as [Hne' Hnmem].
-          constructor.
-          { rewrite /gmap_mono.
-            intros j k.
-            do 2 rewrite lookup_insert_ne //. auto. }
-          { auto. }
-  Qed.
 
   Lemma StronglySorted_snoc {A} (R : A → A → Prop) (xs : list A) (y : A) :
     StronglySorted R xs →
