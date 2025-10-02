@@ -314,12 +314,6 @@ Section cached_wf.
     rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
   Qed.
 
-  (* Lemma map_seq_0_included {A} (l l' : list A) :
-    map_seq (M := gmap nat A) O l ⊆ map_seq O l' →
-      l `prefix_of` l'.
-  Proof.
-    intros Hincl.  *)
-
   Lemma prefix_lookup {A} (xs ys : list A) :
     (∀ i x, xs !! i = Some x → ys !! i = Some x) → xs `prefix_of` ys.
   Proof.
@@ -337,26 +331,79 @@ Section cached_wf.
         auto.
   Qed.
 
+  Lemma map_seq_0_included {A} (l l' : list A) :
+    map_seq (M := gmap nat A) O l ⊆ map_seq O l' →
+      l `prefix_of` l'.
+  Proof.
+    intros Hincl.
+    rewrite map_subseteq_spec in Hincl.
+    apply prefix_lookup.
+    intros i x.
+    do 2 rewrite -lookup_map_seq_0.
+    apply Hincl.
+  Qed.
+
+  Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
+          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+  Proof.
+    intros Hincl. apply map_subseteq_spec.
+    intros i x Hix.
+    rewrite lookup_included in Hincl.
+    specialize (Hincl i).
+    do 2 rewrite lookup_fmap in Hincl.
+    rewrite Hix /= in Hincl.
+    apply Some_included_is_Some in Hincl as H.
+    destruct H as [y Hsome].
+    rewrite Hsome Some_included_total in Hincl.
+    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+    destruct Hsome as (x' & <- & Hix').
+    by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
+  Lemma fmap_to_agree_included_subseteq' (m m' : gmap loc nat) :
+          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+  Proof.
+    intros Hincl. apply map_subseteq_spec.
+    intros i x Hix.
+    rewrite lookup_included in Hincl.
+    specialize (Hincl i).
+    do 2 rewrite lookup_fmap in Hincl.
+    rewrite Hix /= in Hincl.
+    apply Some_included_is_Some in Hincl as H.
+    destruct H as [y Hsome].
+    rewrite Hsome Some_included_total in Hincl.
+    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+    destruct Hsome as (x' & <- & Hix').
+    by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
+  Lemma fmap_to_agree_included_subseteq'' (m m' : gmap nat loc) :
+          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
+  Proof.
+    intros Hincl. apply map_subseteq_spec.
+    intros i x Hix.
+    rewrite lookup_included in Hincl.
+    specialize (Hincl i).
+    do 2 rewrite lookup_fmap in Hincl.
+    rewrite Hix /= in Hincl.
+    apply Some_included_is_Some in Hincl as H.
+    destruct H as [y Hsome].
+    rewrite Hsome Some_included_total in Hincl.
+    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
+    destruct Hsome as (x' & <- & Hix').
+    by apply to_agree_included, leibniz_equiv in Hincl as <-.
+  Qed.
+
   Lemma index_auth_frag_agree' (γ : gname) (i : nat) (l : loc) (index index' : list loc) (q : Qp) : 
     index_auth_own γ q index -∗
       index_frag_own' γ index' -∗
-        ⌜index' ⊆ index⌝.
+        ⌜index' `prefix_of` index⌝.
   Proof.
     iIntros "H● H◯".
     iCombine "H● H◯" gives %(_ & Hvalid & _)%auth_both_dfrac_valid_discrete.
-    do 2 rewrite -fmap_map_seq in Hvalid.
-    rewrite lookup_included in Hvalid.
-    rewrite subseteq_spec.
-
-    rewrite to_agree_included in Hvalid.
-    rewrite auth_both_valid_discrete in Hvalid.
-    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
-    assert (✓ y) as Hy.
-    { by eapply lookup_valid_Some; eauto. }
-    pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
-    rewrite -Hvs'' to_agree_included in H. simplify_eq.
-    iPureIntro. apply leibniz_equiv, (inj (fmap to_agree)).
-    rewrite -list_lookup_fmap /= -lookup_map_seq_0 Hvs'' //.
+    iPureIntro.
+    apply map_seq_0_included, fmap_to_agree_included_subseteq''.
+    by repeat rewrite fmap_map_seq.
   Qed.
 
   Definition registry γᵣ (requests : list (gname * gname * loc)) :=
@@ -1590,57 +1637,6 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
   Qed.
 
   Require Import stdpp.fin_maps.
-
-  Lemma fmap_to_agree_included_subseteq (m m' : gmap loc (gname * list val)) :
-          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
-  Proof.
-    intros Hincl. apply map_subseteq_spec.
-    intros i x Hix.
-    rewrite lookup_included in Hincl.
-    specialize (Hincl i).
-    do 2 rewrite lookup_fmap in Hincl.
-    rewrite Hix /= in Hincl.
-    apply Some_included_is_Some in Hincl as H.
-    destruct H as [y Hsome].
-    rewrite Hsome Some_included_total in Hincl.
-    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
-    destruct Hsome as (x' & <- & Hix').
-    by apply to_agree_included, leibniz_equiv in Hincl as <-.
-  Qed.
-
-  Lemma fmap_to_agree_included_subseteq' (m m' : gmap loc nat) :
-          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
-  Proof.
-    intros Hincl. apply map_subseteq_spec.
-    intros i x Hix.
-    rewrite lookup_included in Hincl.
-    specialize (Hincl i).
-    do 2 rewrite lookup_fmap in Hincl.
-    rewrite Hix /= in Hincl.
-    apply Some_included_is_Some in Hincl as H.
-    destruct H as [y Hsome].
-    rewrite Hsome Some_included_total in Hincl.
-    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
-    destruct Hsome as (x' & <- & Hix').
-    by apply to_agree_included, leibniz_equiv in Hincl as <-.
-  Qed.
-
-  Lemma fmap_to_agree_included_subseteq'' (m m' : gmap nat loc) :
-          (to_agree <$> m) ≼ (to_agree <$> m') → m ⊆ m'.
-  Proof.
-    intros Hincl. apply map_subseteq_spec.
-    intros i x Hix.
-    rewrite lookup_included in Hincl.
-    specialize (Hincl i).
-    do 2 rewrite lookup_fmap in Hincl.
-    rewrite Hix /= in Hincl.
-    apply Some_included_is_Some in Hincl as H.
-    destruct H as [y Hsome].
-    rewrite Hsome Some_included_total in Hincl.
-    rewrite -lookup_fmap lookup_fmap_Some in Hsome.
-    destruct Hsome as (x' & <- & Hix').
-    by apply to_agree_included, leibniz_equiv in Hincl as <-.
-  Qed.
 
   Lemma map_Forall_subseteq `{Countable K} {V} (m m' : gmap K V) P :
     m ⊆ m' → map_Forall P m' → map_Forall P m.
