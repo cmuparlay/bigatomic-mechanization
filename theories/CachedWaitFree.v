@@ -394,7 +394,7 @@ Section cached_wf.
     by apply to_agree_included, leibniz_equiv in Hincl as <-.
   Qed.
 
-  Lemma index_auth_frag_agree' (γ : gname) (i : nat) (l : loc) (index index' : list loc) (q : Qp) : 
+  Lemma index_auth_frag_agree' (γ : gname) (q : Qp) (index index' : list loc) : 
     index_auth_own γ q index -∗
       index_frag_own' γ index' -∗
         ⌜index' `prefix_of` index⌝.
@@ -603,8 +603,50 @@ Section cached_wf.
         order !! loc' = Some j →
           i ≤ j.
 
+
+  Require Import stdpp.sorting.
+
+  Check Sorted_reverse.
+
+  Check StronglySorted.
+
   Lemma gmap_mono_alloc (l : loc) (i : nat) (order : gmap loc nat) (index : list loc) :
     l ∉ index →
+      StronglySorted (gmap_mono order) index →
+        StronglySorted (gmap_mono (<[l := i]>order)) index.
+  Proof.
+    induction index as [|loc' index IH].
+    - intros. constructor.
+    - intros [Hne Hnmem]%not_elem_of_cons Hsorted.
+      inv Hsorted.
+      constructor.
+      + auto.
+      + clear IH H1.
+        induction index as [| loc'' index IH'].
+        * constructor.
+        * inv H2. rewrite not_elem_of_cons in Hnmem.
+          destruct Hnmem as [Hne' Hnmem].
+          constructor.
+          { rewrite /gmap_mono.
+            intros j k.
+            do 2 rewrite lookup_insert_ne //. auto. }
+          { auto. }
+  Qed.
+
+  Lemma StronglySorted_impl {A} (Q R : A → A → Prop) (l : list A) :
+    (∀ x y, Q x y → R x y) →
+      StronglySorted Q l →
+        StronglySorted R l.
+  Proof.
+    intros Hweak Hsorted.
+    induction Hsorted.
+    - constructor.
+    - constructor.
+      + done.
+      + eapply Forall_impl; eauto.
+  Qed. 
+
+  Lemma gmap_mono_subseteq (l : loc) (i : nat) (order order' : gmap loc nat) (index : list loc) :
       StronglySorted (gmap_mono order) index →
         StronglySorted (gmap_mono (<[l := i]>order)) index.
   Proof.
@@ -1785,9 +1827,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         + (* The first CAS will succeed, swapping in the new backup  *)
           rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
           destruct Hcons₁' as ([? ?] & <- & Hlogged₁').
-          simpl in *.
           rewrite Hlogged₁' in Hlogagree.
-          simplify_eq.
           wp_cmpxchg_suc.
           iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hagree".
           (* The new backup pointer cannot be logged, as we have persistent pointsto for all of the previous backup pointers, and full pointsto for the new backup *)
@@ -1825,7 +1865,8 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
           rewrite /value.
           iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
           iMod (ghost_var_update_halves (ldes', desired) with "Hγ Hγ'") as "[Hγ Hγ']".
-          rewrite {}bool_decide_eq_true_2; last done.
+          simplify_eq.
+          rewrite bool_decide_eq_true_2; last done.
           iMod ("Hconsume" with "[$Hγ']") as "HΦ".
           iMod ("Hclose" with "[Hγₜ Hlin' Hγₑ']") as "_".
           { do 2 iRight. iFrame. }
@@ -1858,6 +1899,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
           { rewrite not_elem_of_dom //. }
           iMod (vers_auth_update ldes' ver₁ with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_vers]".
           { rewrite -not_elem_of_dom. set_solver. }
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy]".
           iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy]".
           assert (size (<[ldes':=(γₚ', desired)]> log₁) > 1) as Hvers₁multiple.
           { rewrite map_size_insert_None //. lia. }
@@ -1978,8 +2020,12 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             iCombine "●Hγᵢ ●Hγᵢ''" as "●Hγᵢ".
             rewrite Qp.quarter_quarter.
             iCombine "●Hγᵢ ●Hγᵢ'" as "●Hγᵢ".
-            iCombine "●Hγᵢ ◯Hγᵢ" gives %(_ & Hvalidindex%fmap_to_agree_included_subseteq'' & _)%auth_both_dfrac_valid_discrete.
-
+            rewrite Nat.Odd_div2 /= in Hlenᵢ₁ Hlenᵢ₂; first last.
+            { rewrite Nat.Odd_succ -Nat.even_spec //. }
+            iPoseProof (index_auth_frag_agree' with "●Hγᵢ ◯Hγᵢ") as "%Hprefix".
+            simpl in Hlenᵢ₁.
+            apply prefix_length_eq in Hprefix as <-; last lia.
+            (* iCombine "●Hγᵢ ◯Hγᵢ" gives %(_ & Hvalidindex%fmap_to_agree_included_subseteq'' & _)%auth_both_dfrac_valid_discrete. *)
             iMod (index_auth_update ldes' with "●Hγᵢ") as "[(●Hγᵢ & ●Hγᵢ' & ●Hγᵢ'') ◯Hγᵢ₂]".
             iCombine "Hbackup Hbackup₂'" gives %[_ ->].
             replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
