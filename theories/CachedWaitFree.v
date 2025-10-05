@@ -899,6 +899,21 @@ Section cached_wf.
     repeat rewrite -lookup_fmap //.
   Qed.
 
+  Lemma vers_auth_frag_agree γₕ q log i value : 
+    vers_auth_own γₕ q log -∗
+      vers_frag_own γₕ i value -∗
+        ⌜log !! i = Some value⌝.
+  Proof.
+    iIntros "H● H◯".
+    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
+    assert (✓ y) as Hy.
+    { by eapply lookup_valid_Some; eauto. }
+    pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
+    rewrite -Hvs'' to_agree_included in H. simplify_eq.
+    iPureIntro. apply leibniz_equiv, (inj (fmap to_agree)).
+    rewrite -lookup_fmap /= Hvs'' //.
+  Qed.
+
   (* Lemma log_auth_auth_op γₕ p q (log log' : gmap loc (gname * list val)) :
     log_auth_own γₕ p log -∗
       log_auth_own γₕ q log  -∗
@@ -2023,13 +2038,37 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             iPoseProof (index_auth_frag_agree' with "●Hγᵢ ◯Hγᵢ") as "%Hprefix".
             simpl in Hlenᵢ₁.
             apply prefix_length_eq in Hprefix as <-; last lia.
+            iCombine "●Hγₒ ◯Hγₒcopy" gives %(_ & Hvalidₒ%fmap_to_agree_included_subseteq' & _)%auth_both_dfrac_valid_discrete.
             (* iCombine "●Hγᵢ ◯Hγᵢ" gives %(_ & Hvalidindex%fmap_to_agree_included_subseteq'' & _)%auth_both_dfrac_valid_discrete. *)
             iMod (index_auth_update ldes' with "●Hγᵢ") as "[(●Hγᵢ & ●Hγᵢ' & ●Hγᵢ'') ◯Hγᵢ₂]".
             iCombine "Hbackup Hbackup₂'" gives %[_ ->].
             replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
+            iPoseProof (vers_auth_frag_agree with "●Hγₒ ◯Hγₒ") as "%Hagreeₒ".
+
             iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ $●Hγᵢ $●Hγₒ]") as "_".
             { iFrame "%". iSplit; first last.
               { iPureIntro. apply StronglySorted_snoc.
+                - apply (StronglySorted_subseteq order₁).
+                  { set_solver. }
+                  { eapply Forall_impl.
+                    - eapply Hrange₁.
+                    - intros. set_solver. }
+                  { done. }
+                - rewrite Forall_forall.
+                  intros l' Hmem i j Hts Hts'.
+                  simplify_eq.
+                  rewrite Forall_forall in Hrange₁.
+                  apply Hrange₁ in Hmem.
+                  rewrite -Hdomord elem_of_dom in Hmem.
+                  destruct Hmem as [ts' Hts'].
+                  rewrite map_subseteq_spec in Hvalidₒ.
+                  apply Hvalidₒ in Hts' as ?.
+                  simplify_eq.
+                  apply Hubord₁ in Hts'. lia. }
+              rewrite bool_decide_eq_true_2; last lia.
+              iPureIntro. exists ver. repeat split; auto.
+              rewrite bool_decide_eq_false_2 //. }
+
                 done. }
               iPureIntro. rewrite bool_decide_eq_true_2; last lia.exists ver. repeat split; auto.
               rewrite bool_decide_eq_false_2 //. }
