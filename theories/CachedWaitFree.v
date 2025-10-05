@@ -1701,6 +1701,19 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     by eapply HP, lookup_weaken.
   Qed.
 
+  Lemma even_succ_negb k : Nat.even (S k) = negb (Nat.even k).
+  Proof.
+    destruct (Nat.even (S k)) eqn:Hsucc; destruct (Nat.even k) eqn:H.
+    - exfalso. apply (Nat.Even_Odd_False k).
+      + rewrite -Nat.even_spec //.
+      + rewrite -Nat.Even_succ -Nat.even_spec //.
+    - done.
+    - done.
+    - exfalso. apply (Nat.Even_Odd_False k).
+      + rewrite -Nat.Odd_succ -Nat.odd_spec odd_even_negb //.
+      + rewrite -Nat.odd_spec odd_even_negb //.
+  Qed.    
+
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers γₒ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
       inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
@@ -2044,7 +2057,6 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             iCombine "Hbackup Hbackup₂'" gives %[_ ->].
             replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
             iPoseProof (vers_auth_frag_agree with "●Hγₒ ◯Hγₒ") as "%Hagreeₒ".
-
             iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ $●Hγᵢ $●Hγₒ]") as "_".
             { iFrame "%". iSplit; first last.
               { iPureIntro. apply StronglySorted_snoc.
@@ -2068,17 +2080,27 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
               rewrite bool_decide_eq_true_2; last lia.
               iPureIntro. exists ver. repeat split; auto.
               rewrite bool_decide_eq_false_2 //. }
-
-                done. }
-              iPureIntro. rewrite bool_decide_eq_true_2; last lia.exists ver. repeat split; auto.
-              rewrite bool_decide_eq_false_2 //. }
             change 1%Z with (Z.of_nat 1).
             rewrite -Nat2Z.inj_add /=.
             iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%H".
             destruct Hvalidated₂ as [-> | ([=] & _ & _ & _)].
             replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
-            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ ●Hγᵢ'' $●Hγᵥ'' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
-            { simpl.
+            iModIntro.
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ' ●Hγᵢ'' $●Hγᵥ'' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
+            { rewrite even_succ_negb Heven /= last_snoc.
+              iExists ldes'. iFrame "%". iPureIntro.
+              repeat split; auto.
+              - rewrite length_app /= Nat.add_1_r. auto.
+              - apply NoDup_app. repeat split; first done.
+                + intros l' Hl'. intros ->%elem_of_list_singleton.
+                  rewrite Forall_forall in Hrange₁.
+                  apply Hrange₁ in Hl'. set_solver.
+                + apply NoDup_singleton.
+              - rewrite Forall_app. split; first done. rewrite Forall_singleton.
+                rewrite -Hdomord₂ elem_of_dom. eauto. }
+            iModIntro.
+            wp_pures.
+              
               rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
               rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
               rewrite Heven /=.
