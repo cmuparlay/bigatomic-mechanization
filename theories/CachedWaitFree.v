@@ -2154,144 +2154,36 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
               iFrame "%".
               rewrite Heven.
               iFrame. rewrite Hbackup₃ //. }
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            rewrite /strip.
+            wp_pures.
+            wp_bind (CmpXchg _ _ _)%E.
+            iClear "Hlock".
+            iInv readN as "(%ver₄ & %log₄ & %actual₄ & %cache₄ & %marked_backup₄ & %backup₄ & %backup₄' & %index₄ & >Hver & >Hbackup & >Hγ & >#□Hbackup₄ & >%Hindex₄ & >%Hvalidated₄ & >%Hlenactual₄ & >%Hlencache₄ & >%Hloglen₄ & Hlogtokens & >%Hlogged₄ & >●Hγₕ & >%Hlenᵢ₄ & >%Hnodup₄ & >%Hrange₄ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₄ & Hlock)" "Hcl".
+            iInv cached_wfN as "(%ver'' & %log₄' & %actual₄' & %marked_backup₄' & %backup₄'' & %requests₄ & %vers₄ & %index₄' & %order₄ & %idx₄ & >●Hγᵥ'' & >Hbackup₄' & >Hγ' & >%Hcons₄' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₄ & >%Hvers₄ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₄ & >%Hinj₄ & >%Hidx₄ & >%Hmono₄ & >%Hubord₄)" "Hcl'".
+            iCombine "Hbackup Hbackup₄'" gives %[_ <-].
+            destruct (decide (marked_backup₄ = InjLV #ldes')) as [-> | Hneq]; first last.
+            { wp_cmpxchg_fail.
+              iMod ("Hcl'" with "[$Hbackup₄' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ'' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+              { iFrame "%". }
+              iMod ("Hcl" with "[$Hγ $□Hbackup₄ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup]") as "_".
+              { iFrame "%".  }
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              rewrite /strip.
+              wp_pures.
+              iModIntro.
+              iApply ("HΦ" with "[$]"). }
+            iCombine "Hbackup Hbackup₄'" as "Hbackup".
+            wp_cmpxchg_suc.
             
-            iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
-            { rewrite /seqlock_inv. iExists (S ver), history', vs'', registry'.
-              rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
-              rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
-              rewrite Heven /=.
-              iFrame "∗ #".
-              change 1%Z with (Z.of_nat 1).
-              rewrite -Nat2Z.inj_add /=.
-              iFrame "∗ %". }
-            iModIntro.
-            wp_pures.
-            wp_apply (wp_array_copy_to_half _ _ _ _ _ _ vs'' vs' with "[//] [$] [-]"); try done.
-            iIntros "!> [Hdst Hsrc]".
-            wp_pures.
-            iInv seqlockN as "(%ver' & %history'' & %vs''' & %registry'' & Hreg & Hreginv & >Hver & >%Hlen'' & >%Hhistory'' & Hlock)" "Hcl".
-            destruct (Nat.even ver') eqn:Heven''.
-            { iMod "Hlock" as "(_ & _ & Hγᵥ' & _ & _)". by iDestruct (mono_nat_auth_own_agree with "Hγᵥ Hγᵥ'") as %[Hq _]. }
-            iMod "Hlock" as "(Hγₕ' & Hγᵥ' & Hdst')".
-            iPoseProof (array_frac_add with "Hdst Hdst'") as "[Hdst <-]".
-            { done. }
-            rewrite dfrac_op_own Qp.half_half.
-            wp_store.
-            change 2%Z with (Z.of_nat 2). simplify_eq.
-            iDestruct (mono_nat_auth_own_agree with "Hγᵥ Hγᵥ'") as %[_ <-].
-            iCombine "Hγᵥ Hγᵥ'" as "Hγᵥ".
-            iMod (mono_nat_own_update (S (S ver)) with "Hγᵥ") as "[Hγᵥ #Hlb'']".
-            { lia. }
-            iPoseProof (history_auth_auth_agree with "Hγₕ Hγₕ'") as "<-".
-            iCombine "Hγₕ Hγₕ'" as "Hγₕ".
-            iCombine "Hγ Hγ'" as "Hγ".
-            rewrite Qp.quarter_quarter.
-            iMod (mono_nat_own_update (S ver)).
-
-
-            { admit. }
-
-              iMod (fupd_mask_frame …).
-              rewrite fupd_trans.
-
-              
-            wp_cmpxchg_fail.
-               }
-            admit.
-          * rewrite Zrem_even even_inj Heven' Z.sgn_pos /=; first last.
-            { by destruct ver. }
-            wp_pures.
-            iModIntro.
-            iApply ("HΦ" with "[$]").
           
-          (* If the registry invariant held for the smaller log, it will hold for the log with the new backup inserted *)
+            wp_store.
+          
 
-          iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
-          { do 2 iRight. iFrame. }
-          iMod ("Hcl" with "[-HΦ Hsrc]") as "_".
-          { iExists (S (S ver)), (history' ++ [vs']), vs', registry''.
-            rewrite <- Nat.Even_div2 by now rewrite -Nat.even_spec.
-            rewrite (take_drop_middle _ _ _ Hagree).
-            rewrite /= Heven. change 2%Z with (Z.of_nat 2).
-            rewrite -Nat2Z.inj_add /=.
-            rewrite last_snoc last_length Hhistory'. iFrame.
-            iNext. iSplit; last done.
-            rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv big_sepL_app big_sepL_cons.
-            iFrame "∗ #".
-            rewrite bool_decide_eq_false_2; first done.
-            lia. }
-            iModIntro.
-            by iApply "HΦ". }
-
-
-      
-      destruct (decide (backup₁ = backup')) as [<- | Hneq].
-        + wp_cmpxchg_fail.
-          admit.
-        + wp_cmpxchg_fail.
-          admit.
-        +
-          iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hagree".
-
-
-      - wp_cmpxchg_suc.
-        { admit. }
-        rewrite /registry_inv.
-        iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hagree".
-        rewrite -(take_drop_middle _ _ _ Hagree).
-        rewrite /registry_inv.
-        rewrite big_sepL_app big_sepL_cons.
-        iDestruct "Hreginv" as "(Hlft & (_ & Hγₗ & _) & Hrht)".
-        iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hγₗ') | [(>Hcredit & AU & >Hγₑ' & >Hγₗ') | (>Htok & [%b >Hγₑ'] & [%b' >Hγₗ'])]]" "Hclose".
-        { by iCombine "Hγₗ Hγₗ'" gives %[]. }
-        { iMod (ghost_var_update_halves false with "Hγₗ Hγₗ'") as "[Hlin Hlin']".
-          iMod (lc_fupd_elim_later with "Hcredit AU") as "AU".
-          iMod "AU" as (n') "[Hγ' [_ Hconsume]]".
-          iMod (ghost_var_update_halves vs' with "Hγ Hγ'") as "[Hγ Hγ']".
-          iMod ("Hconsume" with "Hγ") as "HΦ".
-          iMod ("Hclose" with "[Hγₜ Hlin']") as "_".
-          { do 2 iRight. iFrame. }
-          iMod ("Hcl" with "[-HΦ Hsrc]") as "_".
-          { iExists (S (S ver)), (history' ++ [vs']), vs', registry''.
-            rewrite <- Nat.Even_div2 by now rewrite -Nat.even_spec.
-            rewrite (take_drop_middle _ _ _ Hagree).
-            rewrite /= Heven. change 2%Z with (Z.of_nat 2).
-            rewrite -Nat2Z.inj_add /=.
-            rewrite last_snoc last_length Hhistory'. iFrame.
-            iNext. iSplit; last done.
-            rewrite -{3}(take_drop_middle _ _ _ Hagree) /registry_inv big_sepL_app big_sepL_cons.
-            iFrame "∗ #".
-            rewrite bool_decide_eq_false_2; first done.
-            lia. }
-          iModIntro.
-          by iApply "HΦ". }
-      iMod (ghost_var_update desired with "Hγ") as "Hγ".
-        { admit. }
-        iMod (linearize_cas with "Hlogtokens Hγₜ Hγ Hreginv") as "Hq".
-        { lia. }
-        { done. admit. }
-        { admit. }
-        { admit. }
-        { done. }
-      destruct (decide (backup₁ = backup')) as [<- | Hneq]; first last.
-
-      { admit. }
-      destruct (decide (valid₁ = valid')) as [<- | Hneq'].
-      -
-      { admit. }
-      wp_cmpxchg_suc.
-      { admit. }
-
-      { }
-        +
-      wp_cmpxchg_fail.
-      destruct (decide ())
-
-      simpl in *.
-      
-
-
-  Admitted.
 
   Lemma write_spec (γ : gname) (v : val) (src : loc) dq (vs' : list val) :
     is_cached_wf v γ (length vs') -∗
