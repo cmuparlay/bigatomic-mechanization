@@ -2086,7 +2086,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             destruct Hvalidated₂ as [-> | ([=] & _ & _ & _)].
             replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
             iModIntro.
-            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ' ●Hγᵢ'' $●Hγᵥ'' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ' $●Hγᵥ'' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₂]") as "_".
             { rewrite even_succ_negb Heven /= last_snoc.
               iExists ldes'. iFrame "%". iPureIntro.
               repeat split; auto.
@@ -2100,23 +2100,13 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
                 rewrite -Hdomord₂ elem_of_dom. eauto. }
             iModIntro.
             wp_pures.
-              
-              rewrite <- (Nat.Even_div2 ver) by now rewrite -Nat.even_spec.
-              rewrite Nat.even_spec -Nat.Odd_succ -Nat.odd_spec odd_even_negb in Heven.
-              rewrite Heven /=.
-              iFrame "∗ %".
-              auto. }
-            iApply fupd_mask_intro.
-            { set_solver. }
-            iIntros ">_ !>".
-            wp_pures.
             wp_apply (wp_array_copy_to_half _ _ _ _ _ _ cache₂ desired with "[//] [$] [-]"); try done.
             { lia. }
             iIntros "!> [Hdst Hsrc]".
             wp_pures.
             wp_bind (_ <- _)%E.
             iInv readN as "(%ver₃ & %log₃ & %actual₃ & %cache₃ & %marked_backup₃ & %backup₃ & %backup₃' & %index₃ & >Hver & >Hbackup & >Hγ & >#□Hbackup₃ & >%Hindex₃ & >%Hvalidated₃ & >%Hlenactual₃ & >%Hlencache₃ & >%Hloglen₃ & Hlogtokens & >%Hlogged₃ & >●Hγₕ & >%Hlenᵢ₃ & >%Hnodup₃ & >%Hrange₃ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₃ & Hlock)" "Hcl".
-            iInv cached_wfN as "(%ver'' & %log₃' & %actual₃' & %marked_backup₃' & %backup₃'' & %requests₃ & %vers₃ & >●Hγᵥ'' & >Hbackup₃' & >Hγ' & >%Hcons₃' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₃ & >%Hvers₃)" "Hcl'".
+            iInv cached_wfN as "(%ver'' & %log₃' & %actual₃' & %marked_backup₃' & %backup₃'' & %requests₃ & %vers₃ & %index₃' & %order₃ & %idx₃ & >●Hγᵥ'' & >Hbackup₃' & >Hγ' & >%Hcons₃' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₃ & >%Hvers₃ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₃ & >%Hinj₃ & >%Hidx₃ & >%Hmono₃ & >%Hubord₃)" "Hcl'".
             wp_store.
             change 2%Z with (Z.of_nat 2). simplify_eq.
             iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ ->].
@@ -2124,10 +2114,28 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
             iCombine "●Hγᵥ ●Hγᵥ'" as "●Hγᵥ".
             rewrite Qp.quarter_quarter.
             iCombine "●Hγᵥ ●Hγᵥ''" as "●Hγᵥ".
-            iMod (mono_nat_own_update (S (S ver)) with "●Hγᵥ") as "[Hγᵥ #Hlb'']".
-            iMod (index_auth_update )
+            iMod (mono_nat_own_update (S (S ver)) with "●Hγᵥ") as "[(●Hγᵥ & ●Hγᵥ' & ●Hγᵥ'') #Hlb₃]".
             { lia. }
-
+            iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ''") as %<-.
+            iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
+            replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
+            iPoseProof (array_frac_add with "Hcache Hdst") as "[Hcache ->]".
+            { lia. }
+            rewrite dfrac_op_own Qp.half_half.
+          iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+            iMod ("Hcl'" with "[$Hbackup₃' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ $●Hγᵢ' $●Hγₒ]") as "_".
+            { iFrame "%". iPureIntro.
+              destruct (decide (1 < size log₃)).
+              - rewrite bool_decide_eq_true_2 //. 
+                rewrite bool_decide_eq_true_2 // in Hvers₃.
+                destruct Hvers₃ as (ver₃' & Hver₃' & Hle₃ & Hub₃ & Hinvalid₃).
+                exists ver₃'. repeat split; auto.
+                rewrite bool_decide_eq_false_2 //. lia.
+              - rewrite bool_decide_eq_false_2 //. 
+                rewrite bool_decide_eq_false_2 // in Hvers₃. }
+            rewrite -Nat2Z.inj_add.
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ ●Hγᵥ' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₃]") as "_".
+            { exists index₃ }
             
             iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
             { rewrite /seqlock_inv. iExists (S ver), history', vs'', registry'.
