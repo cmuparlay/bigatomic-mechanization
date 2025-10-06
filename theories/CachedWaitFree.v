@@ -2133,9 +2133,27 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
                 rewrite bool_decide_eq_false_2 //. lia.
               - rewrite bool_decide_eq_false_2 //. 
                 rewrite bool_decide_eq_false_2 // in Hvers₃. }
-            rewrite -Nat2Z.inj_add.
-            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ ●Hγᵥ' $Hcache $Hbackup $Hver $●Hγₕ $□Hbackup₃]") as "_".
-            { exists index₃ }
+            rewrite -Nat2Z.inj_add /=.
+            destruct Hvalidated₃ as [-> | (_ & HOdd%Nat.Even_succ & _ & _)]; first last.
+            { exfalso. apply (Nat.Even_Odd_False ver).
+              - rewrite -Nat.even_spec //.
+              - done. }
+            iDestruct "Hcache" as "[Hcache Hcache']".
+            simpl in Hlenᵢ₃.
+            iPoseProof (index_auth_frag_agree with "●Hγᵢ ◯Hγᵢ₂") as "%Hagreeᵢ".
+            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%Hbackup₃".
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ ●Hγᵢ'' $●Hγᵥ' ●Hγᵥ'' $Hcache Hcache' $Hbackup $Hver $●Hγₕ $□Hbackup₃]") as "_".
+            { iFrame "%".
+              iSplit; first auto.
+              rewrite Nat.Odd_div2; first last.
+              { rewrite Nat.Odd_succ Nat.Even_succ Nat.Odd_succ -Nat.even_spec //. }
+              simpl.
+              simpl in Hlenᵢ₃.
+              rewrite last_lookup Hlenᵢ₃ /= in Hindex₃.
+              rewrite Hlenᵢ₁ in Hagreeᵢ. simplify_eq.
+              iFrame "%".
+              rewrite Heven.
+              iFrame. rewrite Hbackup₃ //. }
             
             iMod ("Hcl" with "[Hver Hreg Hreginv Hγₕ' Hdst' Hγᵥ']") as "_".
             { rewrite /seqlock_inv. iExists (S ver), history', vs'', registry'.
