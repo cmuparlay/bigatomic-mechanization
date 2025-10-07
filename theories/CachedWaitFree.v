@@ -601,7 +601,7 @@ Section cached_wf.
     ∀ i j, 
       order !! loc = Some i → 
         order !! loc' = Some j →
-          i ≤ j.
+          i < j.
 
   Lemma gmap_mono_alloc (l : loc) (i : nat) (order : gmap loc nat) (index : list loc) :
     l ∉ index →
@@ -1551,6 +1551,19 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
 
   Require Import iris.bi.lib.atomic.
 
+  (* Lemma NoDup_lookup_ne {A} (l : list A) (i j : nat) (x y : A) :
+    NoDup l →
+      i ≠ j →
+        l !! i = Some x →
+          l !! j = Some y →
+            x ≠ y.
+  Proof.
+    induction l as [| h t IH].
+    - done.
+    - simpl. intros Hunique Hne Hx Hy. simpl in  *)
+
+  Check NoDup_lookup_ne.
+
   (* Definition cached_wf_inv (γ γₕ γᵣ : gname) (l : loc) : iProp Σ :=
     ∃ log (actual : list val) (marked_backup : val) (backup : loc) requests,
       (* Ownership of the backup location *)
@@ -1712,7 +1725,37 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     - exfalso. apply (Nat.Even_Odd_False k).
       + rewrite -Nat.Odd_succ -Nat.odd_spec odd_even_negb //.
       + rewrite -Nat.odd_spec odd_even_negb //.
-  Qed.    
+  Qed.
+
+Lemma NoDup_lookup_ne {A} (l : list A) i j x y :
+  NoDup l →
+  i ≠ j →
+  l !! i = Some x →
+  l !! j = Some y →
+  x ≠ y.
+Proof.
+  intros Hnd Hij Hi Hj ->. eapply Hij, NoDup_lookup; eauto.
+Qed.
+
+
+  (* The “strict” version: no extra assumptions on R *)
+  Lemma StronglySorted_lookup_lt {A} (R : A → A → Prop) l i j x y :
+    StronglySorted R l →
+    i < j →
+    l !! i = Some x →
+    l !! j = Some y →
+    R x y.
+  Proof.
+    revert i j x y.
+    induction l as [|a l IH]; intros i j x y Hsorted Hij Hix Hjy.
+    - now rewrite lookup_nil in Hix.
+    - destruct i as [| i], j as [| j].
+      + lia.
+      + simpl in *. simplify_eq. inv Hsorted.
+        eapply Forall_lookup_1; eauto.
+      + lia.
+      + simpl in *. inv Hsorted. apply (IH i j); auto. lia.
+  Qed.
 
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers γₒ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
@@ -1985,7 +2028,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
           iAssert (⌜backup ≠ ldes'⌝)%I as "%Hnoaba".
           { iIntros (->). 
             iApply (array_pointsto_pointsto_persist with "Hldes' □Hbackup"); first done.
-            lia.  }
+            lia. }
           iMod (array_persist with "Hldes'") as "#Hldes'".
           iPoseProof (log_tokens_update with "Hlogtokens Hγₚ' Hldes'") as "Hlogtokens".
           { done. }
@@ -2179,7 +2222,55 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
               iApply ("HΦ" with "[$]"). }
             iCombine "Hbackup Hbackup₄'" as "Hbackup".
             wp_cmpxchg_suc.
+            iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ''") as %[_ <-].
+            iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
+            iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+            iCombine "Hγ Hγ'" gives %[_ [=->->]].
+            destruct Hvalidated₄ as [[=<-] | ([=] & _ & _)].
+            iPoseProof (vers_auth_frag_agree with "●Hγₒ ◯Hγₒ") as "%Hagreeₒ₄". simplify_eq.
+            iDestruct (mono_nat_lb_own_valid with "●Hγᵥ Hlb₃") as %[_ Hless].
+            iPoseProof (index_auth_frag_agree with "●Hγᵢ ◯Hγᵢ₂") as "%Hagreeᵢ₂₄".
+            rewrite Hlenᵢ₂ in Hagreeᵢ₂₄.
+            destruct (decide (S (S ver) = ver₄)) as [-> | Hneq]; first last.
+            { iExFalso.
+              destruct ver₄ as [|[|[|ver₄]]]; try lia.
+              simpl in Hlenᵢ₄.
+              rewrite last_lookup Hlenᵢ₄ /= in Hindex₄.
+              assert (Nat.div2 ver < S (Nat.div2 ver₄)) as Hnever.
+              { assert (ver ≤ ver₄) as Hmono%div2_mono by lia. lia. }
+              (* apply NoDup_lookup_ne with (i := S (Nat.div2 ver)) (x := ldes') in Hindex₄ as Hneqq; auto; first last.
+              { intros [=Heq]. assert (ver ≤ ver₄) as Hmono%div2_mono by lia. lia. } *)
+              eapply StronglySorted_lookup_lt with (i := S (Nat.div2 ver)) (j := S (S (Nat.div2 ver₄))) in Hmono₄; eauto; last lia.
+              rewrite /gmap_mono in Hmono₄.
+              assert (is_Some (order₄ !! backup₄')) as [ts₄ Hts₄].
+              { rewrite -elem_of_dom Hdomord₄.
+                rewrite Forall_forall in Hrange₄.
+                apply Hrange₄. rewrite elem_of_list_lookup.
+                eauto. }
+              pose proof (Hmono₄ _ _ Hidx₄ Hts₄) as Hle'.
+              rewrite map_Forall_lookup in Hubord₄. 
+              apply Hubord₄ in Hts₄. lia. }
+
+
+              apply Hmono₄ in Hidx₄; eauto.
+
+              { lia. }
+
+              { rewrite Hlenᵢ₄. Hagreeᵢ₂₄. Hlenᵢ₁ //. }
+              { rewrite Hlenᵢ₁ Hagreeᵢ₂₄ //. }
+              { rewrite Hlenᵢ₁ Hlenᵢ₄.  }
+            rewrite /gmap_mono in Hmono₄.
+
+
+
             
+            
+
+
+              iPoseProof () }
+            iPoseProof (array_frac_add with "Hcache Hdst") as "[Hcache ->]".
+            { lia. }
+
           
             wp_store.
           
