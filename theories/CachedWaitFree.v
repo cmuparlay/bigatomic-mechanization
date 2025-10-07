@@ -2165,7 +2165,7 @@ Qed.
             iPoseProof (array_frac_add with "Hcache Hdst") as "[Hcache ->]".
             { lia. }
             rewrite dfrac_op_own Qp.half_half.
-          iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+            iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
             iMod ("Hcl'" with "[$Hbackup₃' $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ $●Hγᵢ' $●Hγₒ]") as "_".
             { iFrame "%". iPureIntro.
               destruct (decide (1 < size log₃)).
@@ -2231,7 +2231,7 @@ Qed.
             iDestruct (mono_nat_lb_own_valid with "●Hγᵥ Hlb₃") as %[_ Hless].
             iPoseProof (index_auth_frag_agree with "●Hγᵢ ◯Hγᵢ₂") as "%Hagreeᵢ₂₄".
             rewrite Hlenᵢ₂ in Hagreeᵢ₂₄.
-            destruct (decide (S (S ver) = ver₄)) as [-> | Hneq]; first last.
+            destruct (decide (S (S ver) = ver₄)) as [<- | Hneq]; first last.
             { iExFalso.
               destruct ver₄ as [|[|[|ver₄]]]; try lia.
               simpl in Hlenᵢ₄.
@@ -2250,29 +2250,44 @@ Qed.
               pose proof (Hmono₄ _ _ Hidx₄ Hts₄) as Hle'.
               rewrite map_Forall_lookup in Hubord₄. 
               apply Hubord₄ in Hts₄. lia. }
-
-
-              apply Hmono₄ in Hidx₄; eauto.
-
-              { lia. }
-
-              { rewrite Hlenᵢ₄. Hagreeᵢ₂₄. Hlenᵢ₁ //. }
-              { rewrite Hlenᵢ₁ Hagreeᵢ₂₄ //. }
-              { rewrite Hlenᵢ₁ Hlenᵢ₄.  }
-            rewrite /gmap_mono in Hmono₄.
-
-
-
-            
-            
-
-
-              iPoseProof () }
-            iPoseProof (array_frac_add with "Hcache Hdst") as "[Hcache ->]".
-            { lia. }
-
-          
-            wp_store.
+            iDestruct "Hbackup" as "[Hbackup Hbackup']".
+            iPoseProof (vers_auth_frag_agree with "●Hγ_vers ◯Hγ_vers") as "%Hagreever".
+            iMod ("Hcl'" with "[$Hbackup $Hγ' $●Hγₕ' $Hreginv $●Hγᵣ $●Hγ_vers $●Hγᵥ'' $●Hγᵢ' $●Hγₒ]") as "_".
+            { iFrame "%". iPureIntro.
+              destruct (decide (1 < size log₄)).
+              { rewrite bool_decide_eq_true_2 //.
+                rewrite bool_decide_eq_true_2 // in Hvers₄.
+                destruct Hvers₄ as (ver'' & Hvers₄ & Hlever' & Hubvers₄ & Hinvalid).
+                simplify_eq.
+                exists ver. repeat split; auto.
+                rewrite bool_decide_eq_false_2 //. lia. }
+              { rewrite bool_decide_eq_false_2 //.
+                rewrite bool_decide_eq_false_2 // in Hvers₄. } }
+            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ₁") as "%Hldes₄".
+            rewrite Hldes₄ /= in Hlogged₄.
+            simplify_eq.
+            simpl in Hcons₄.
+            rewrite Heven' in Hcons₄.
+            pose proof Hindex₄ as Hindex₄'.
+            rewrite last_lookup Hlenᵢ₄ Nat.Odd_div2 /= in Hindex₄; first last.
+            { rewrite Nat.Odd_succ Nat.Even_succ Nat.Odd_succ -Nat.even_spec //. }
+            simplify_eq.
+            rewrite Hldes₄ /= in Hcons₄.
+            simplify_eq.
+            iMod ("Hcl" with "[$Hγ $Hlogtokens $●Hγᵢ $●Hγᵥ $Hcache $Hbackup' $Hver $●Hγₕ $□Hbackup₄ $Hlock]") as "_".
+            { iFrame "%". iPureIntro.
+              - repeat split; auto.
+                + right. rewrite Nat.Even_succ Nat.Odd_succ -Nat.even_spec //.
+                + rewrite Hldes₄ //=.
+                + simpl. rewrite Heven Hldes₄ //=. }
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            rewrite /strip.
+            wp_pures.
+            iModIntro.
+            iApply ("HΦ" with "[$]").
+  Admitted.
           
 
 
