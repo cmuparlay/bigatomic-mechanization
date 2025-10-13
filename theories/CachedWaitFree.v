@@ -96,7 +96,7 @@ Definition logUR := authUR $ gmapUR loc $ agreeR $ (prodO gnameO (listO valO)).
 Definition requestReg := gmap nat $ agree (gname * gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO (prodO gnameO gnameO) locO.
 
-Definition validatedUR := authUR $ gsetUR $ locO.
+Definition validatedUR := authUR $ gset_disjUR $ locO.
 Definition invalidUR := authUR $ gmapUR locO $ agreeR natO.
 Definition orderUR := authUR $ gmapUR locO $ agreeR natO.
 
@@ -111,7 +111,7 @@ Class cached_wfG (Σ : gFunctors) := {
   cached_wf_tokenG :: tokenG Σ;
   cached_wf_invalidUR :: inG Σ invalidUR;
   cached_wf_orderUR :: inG Σ orderUR;
-  (* cached_wf_validatedUR :: inG Σ validatedUR; *)
+  cached_wf_validatedUR :: inG Σ validatedUR;
 }.
 
 Section cached_wf.
@@ -183,7 +183,9 @@ Section cached_wf.
 
   Definition index_frag_own γᵢ (i : nat) (l : loc) := own γᵢ (◯ {[i := to_agree l]}).
 
-  (* Definition validated_auth_own γ (q : Qp) (validated : gset loc) := own γ (●{#q} validated). *)
+  Definition validated_auth_own γ (q : Qp) (validated : gset loc) := own γ (●{#q} GSet validated).
+
+  Definition validated_frag_own γ (l : loc) := own γ (◯ GSet {[ l ]}).
 
   Lemma index_auth_update (l : loc) γ (index : list loc) :
     index_auth_own γ 1 index ==∗
@@ -232,6 +234,32 @@ Section cached_wf.
       rewrite lookup_map_seq_0 list_lookup_fmap Hlookup //. }
     by iFrame.
   Qed.
+
+  Lemma validated_auth_update (l : loc) (γ : gname) (validated : gset loc) :
+    l ∉ validated →
+      validated_auth_own γ 1 validated ==∗
+        validated_auth_own γ 1 ({[ l ]} ∪ validated) ∗ validated_frag_own γ l.
+  Proof.
+    iIntros (Hfresh) "H●".
+    rewrite /log_auth_own /log_frag_own.
+    iMod (own_update with "H●") as "[H● H◯]".
+    { eapply auth_update_alloc.
+      eapply (gset_disj_alloc_local_update _ _ {[ l ]}).
+      set_solver.  }
+    rewrite right_id_L. by iFrame.
+  Qed.
+
+  Lemma validated_auth_frag_agree γ dq l validated :
+    validated_auth_own γ dq validated -∗
+      validated_frag_own γ l -∗
+        ⌜l ∈ validated⌝.
+  Proof.
+    iIntros "●H ◯H".
+    iCombine "●H ◯H" gives %(_ & H & _)%auth_both_dfrac_valid_discrete.
+    set_solver.
+  Qed.
+
+  (* Lemma validated_auth_alloc_empty : |==> ∃ γ, validated_auth_own γ 1 ∅)%I. *)
 
   Lemma log_auth_update (l : loc) (value : list val) (γ γₕ : gname) (log : gmap loc (gname * list val)) :
     log !! l = None →
@@ -1760,25 +1788,25 @@ Qed.
       + simpl in *. inv Hsorted. apply (IH i j); auto. lia.
   Qed.
 
-  Lemma already_linearized Φ γ γₗ γₑ γᵣ γₜ (backup lexp ldes l : loc) expected desired actual (dq dq' : dfrac) q i used :
-    lexp ≠ backup →
+  Lemma already_linearized Φ γ γₗ γₑ γᵣ γₜ (backup lexp lexp' ldes : loc) expected desired actual (dq dq' : dfrac) q i used :
+    lexp' ≠ backup →
       (* inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
         inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ l) -∗ *)
       inv casN (cas_inv Φ γ γₑ γₗ γₜ lexp ldes dq dq' expected desired) -∗
         lexp ↦∗{dq} expected -∗
           ldes ↦∗{dq'} desired -∗
-            registered γᵣ i γₗ γₑ lexp -∗
-              request_inv γ γₗ γₑ backup lexp actual used -∗
+            registered γᵣ i γₗ γₑ lexp' -∗
+              request_inv γ γₗ γₑ backup lexp' actual used -∗
                 ghost_var γ q (backup, actual) -∗
                   token γₜ -∗ 
                     £ 2 ={⊤}=∗ 
                       Φ #false ∗ 
-                      request_inv γ γₗ γₑ backup lexp actual used ∗
+                      request_inv γ γₗ γₑ backup lexp' actual used ∗
                       ghost_var γ q (backup, actual).
   Proof.
     iIntros (Hne) "#Hcasinv Hlexp Hldes #Hregistered Hreqinv Hγ Hγₜ [Hcredit Hcredit']".
     rewrite /request_inv.
-    iDestruct "Hreqinv" as "(%Hused & Hlin & %Φ' & %γₜ' & %lexp' & %ldes' & %dq₁ & %dq₁' & %expected' & %desired' & Hγₑ & _)".
+    iDestruct "Hreqinv" as "(%Hused & Hlin & %Φ' & %γₜ' & %lexp'' & %ldes' & %dq₁ & %dq₁' & %expected' & %desired' & Hγₑ & _)".
     iInv casN as "[(HΦ & [%b >Hγₑ'] & >Hlin') | [(>Hcredit'' & AU & >Hγₑ' & >Hlin') | (>Htok & [%b >Hγₑ'] & [%b' >Hlin'])]]" "Hclose".
     + iCombine "Hlin Hlin'" gives %[_ Heq].
       iMod (ghost_var_update_halves (bool_decide (actual = expected)) with "Hγₑ Hγₑ'") as "[Hγₑ Hγₑ']". 
@@ -1948,6 +1976,8 @@ Qed.
         destruct Hvalidated₂ as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
         * (* Old backup was validated, but current backup is not *)
           wp_cmpxchg_fail.
+          iPoseProof (already_linearized with "[$] [$] [$] [$] [] [$]") as "H".
+          { done. auto. }
           (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
           iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
           (* iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
