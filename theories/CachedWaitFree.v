@@ -1434,9 +1434,9 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iApply (twp_array_clone_persistent with "H"); [auto..|]; iIntros (l') "H HΦ". by iApply "HΦ".
   Qed.
 
-  Lemma read'_spec (γ γᵥ γₕ γᵢ : gname) (l : loc) (n : nat) :
+  Lemma read'_spec (γ γᵥ γₕ γᵢ γ_val : gname) (l : loc) (n : nat) :
     n > 0 →
-      inv readN (read_inv γ γᵥ γₕ γᵢ l n) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ γ_val l n) -∗
         <<{ ∀∀ backup vs, value γ backup vs  }>> 
           read' n #l @ ↑readN
         <<{ ∃∃ (marked_backup : val) (copy backup : loc) (ver : nat) (γₜ : gname), value γ backup vs | 
@@ -1446,7 +1446,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
     wp_bind (! _)%E.
-    iInv readN as "(%ver & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
+    iInv readN as "(%ver & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
     wp_load.
     iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb".
     eapply backup_logged in Hrange as Hbackup_logged; last done.
@@ -1465,7 +1465,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & #Hcons)".
     wp_pures.
     wp_bind (! _)%E.
-    iInv readN as "(%ver' & %log' & %actual' & %cache' & %marked_backup₁ & %backup₁ & %backup₁' & %index' & >Hver & >Hbackup & >Hγ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock)" "Hcl".
+    iInv readN as "(%ver' & %log' & %actual' & %cache' & %marked_backup₁ & %backup₁ & %backup₁' & %index' & %validated₁ & >Hver & >Hbackup & >Hγ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock)" "Hcl".
     wp_load.
     iMod "AU" as (backup'' vs') "[Hγ' [_ Hconsume]]".
     iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
@@ -1502,7 +1502,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     - rewrite /is_valid /strip.
       wp_pures.
       wp_bind (! _)%E.
-      iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %marked_backup₂ & %backup₂ & %backup₂' & %index'' & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock)" "Hcl".
+      iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %marked_backup₂ & %backup₂ & %backup₂' & %index'' & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock)" "Hcl".
       wp_load.
       iDestruct (mono_nat_lb_own_valid with "●Hγᵥ Hlb'") as %[_ Hle'].
       iPoseProof (log_auth_frag_agree with "●Hlog ◯Hlog") as "%Hlookup'".
