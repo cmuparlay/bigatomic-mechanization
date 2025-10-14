@@ -1,5 +1,5 @@
 (coq.theory
  (name bigatomic)
- (theories stdpp iris iris.heap_lang ltac)
+ (theories stdpp iris iris.heap_lang)
  (package bigatomic)
 ) 
