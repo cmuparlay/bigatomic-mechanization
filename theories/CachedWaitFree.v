@@ -96,7 +96,7 @@ Definition logUR := authUR $ gmapUR loc $ agreeR $ (prodO gnameO (listO valO)).
 Definition requestReg := gmap nat $ agree (gname * gname * loc).
 Definition requestRegUR := authUR $ gmapUR nat $ agreeR $ prodO (prodO gnameO gnameO) locO.
 
-Definition validatedUR := authUR $ gset_disjUR $ locO.
+Definition validatedUR := authUR $ gsetUR $ locO.
 Definition invalidUR := authUR $ gmapUR locO $ agreeR natO.
 Definition orderUR := authUR $ gmapUR locO $ agreeR natO.
 
@@ -183,9 +183,9 @@ Section cached_wf.
 
   Definition index_frag_own γᵢ (i : nat) (l : loc) := own γᵢ (◯ {[i := to_agree l]}).
 
-  Definition validated_auth_own γ (q : Qp) (validated : gset loc) := own γ (●{#q} GSet validated).
+  Definition validated_auth_own γ (q : Qp) (validated : gset loc) := own γ (●{#q} validated).
 
-  Definition validated_frag_own γ (l : loc) := own γ (◯ GSet {[ l ]}).
+  Definition validated_frag_own γ (l : loc) := own γ (◯ {[ l ]}).
 
   Lemma index_auth_update (l : loc) γ (index : list loc) :
     index_auth_own γ 1 index ==∗
@@ -236,17 +236,29 @@ Section cached_wf.
   Qed.
 
   Lemma validated_auth_update (l : loc) (γ : gname) (validated : gset loc) :
-    l ∉ validated →
-      validated_auth_own γ 1 validated ==∗
-        validated_auth_own γ 1 ({[ l ]} ∪ validated) ∗ validated_frag_own γ l.
+    validated_auth_own γ 1 validated ==∗
+      validated_auth_own γ 1 ({[ l ]} ∪ validated) ∗ validated_frag_own γ l.
+  Proof.
+    iIntros "H●".
+    rewrite /log_auth_own /log_frag_own.
+    iMod (own_update with "H●") as "[H● H◯]".
+    { eapply auth_update_alloc.
+      apply (gset_local_update _ _ ({[ l ]} ∪ validated)). set_solver. }
+    iFrame. iModIntro.
+    rewrite /validated_frag_own.
+    iPoseProof (own_mono with "H◯") as "H"; last done.
+    apply auth_frag_mono. set_solver.
+  Qed.
+
+  Lemma validated_auth_frag_alloc (l : loc) (γ : gname) (q : Qp) (validated : gset loc) :
+    l ∈ validated →
+      validated_auth_own γ q validated ==∗ validated_auth_own γ q validated ∗ validated_frag_own γ l.
   Proof.
     iIntros (Hfresh) "H●".
     rewrite /log_auth_own /log_frag_own.
     iMod (own_update with "H●") as "[H● H◯]".
-    { eapply auth_update_alloc.
-      eapply (gset_disj_alloc_local_update _ _ {[ l ]}).
-      set_solver.  }
-    rewrite right_id_L. by iFrame.
+    { apply (auth_update_dfrac_alloc _ _ {[ l ]}). set_solver. }
+    by iFrame.
   Qed.
 
   Lemma validated_auth_frag_agree γ dq l validated :
@@ -1266,7 +1278,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iMod (array_persist with "Hbackup") as "#Hbackup".
     iDestruct "Hvalidated" as "[Hvalidated Hvalidated']".
     replace (1 / 2 / 2)%Qp with (1/4)%Qp by compute_done.
-    iMod (own_alloc (● (GSet {[ backup ]}))) as "[%γ_val Hγ_val]".
+    iMod (own_alloc (● {[ backup ]})) as "[%γ_val Hγ_val]".
     { by apply auth_auth_valid. }
     iMod (inv_alloc readN _ (read_inv γ γᵥ γₕ γᵢ γ_val l n) with "[$Hvalidated $Hγ' $Hγᵥ' Hγᵥ'' Hγ_val $Hγₕ Hγᵢ' $Hγᵢ'' $Hcache Hcache' Hγₜ $Hversion $Hbackup]") as "#Hreadinv".
     { iExists backup, {[ backup ]}. iFrame "∗ # %".
@@ -1290,7 +1302,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       { iPureIntro. rewrite Forall_singleton. set_solver. }
       rewrite bool_decide_eq_true_2; last set_solver.
       rewrite lookup_singleton //=. }
-    iMod (own_alloc (● ∅)) as "[%γ_vers Hγ_vers]".
+    iMod (own_alloc (● (∅ : gmap _ _))) as "[%γ_vers Hγ_vers]".
     { by apply auth_auth_valid. }
     iMod (own_alloc (● {[ backup := to_agree O ]})) as "[%γₒ Hγₒ]".
     { by apply auth_auth_valid, singleton_valid. }
@@ -1829,9 +1841,9 @@ Qed.
     + iCombine "Hγₜ Htok" gives %[].
   Qed.
 
-  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_vers γₒ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
+  Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_val γ_vers γₒ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
     length expected > 0 → length expected = length desired →
-      inv readN (read_inv γ γᵥ γₕ γᵢ l (length expected)) -∗
+      inv readN (read_inv γ γᵥ γₕ γᵢ γ_val l (length expected)) -∗
         inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ l) -∗
           lexp ↦∗{dq} expected -∗
             ldes ↦∗{dq'} desired -∗
@@ -1940,7 +1952,7 @@ Qed.
       iIntros (ldes') "[Hldes' Hldes]".
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
-      iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock)" "Hcl".
+      iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & %validated & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock)" "Hcl".
       iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ & %index₁' & %order₁ & %idx₁ & >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁ & >●Hγᵢ' & >●Hγₒ & >%Hdomord & >%Hinj₁ & >%Hidx₁ & >%Hmono₁ & >%Hubord₁)" "Hcl'".
       iPoseProof (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as "<-".
       iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
@@ -1972,7 +1984,7 @@ Qed.
         wp_pures.
         wp_bind (CmpXchg _ _ _).
         (* Consider the case where the next CAS succeeds or fails *)
-        iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
+        iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock)" "Hcl".
         iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
         iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
         iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
