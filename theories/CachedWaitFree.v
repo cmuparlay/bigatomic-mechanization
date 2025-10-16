@@ -82,9 +82,9 @@ Definition cas (n : nat) : val :=
     if: array_equal (Fst (Fst "old")) "expected" #n then 
       if: array_equal "expected" "desired" #n then #true
       else
-        let: "backup'" := InjL (array_clone "desired" #n) in
+        let: "backup'" := array_clone "desired" #n in
         let: "backup" := (Snd (Fst "old")) in
-        if: (CAS ("l" +ₗ #1) "backup" "backup'") || (CAS ("l" +ₗ #1) (InjR (strip "backup")) "backup'") then
+        if: (CAS ("l" +ₗ #1) "backup" (InjL "backup'")) || (CAS ("l" +ₗ #1) (InjR (strip "backup")) (InjL "backup'")) then
           try_validate n "l" (Snd "old") "desired" "backup'";;
           #true
         else #false
@@ -1869,7 +1869,7 @@ Qed.
 
   Lemma wp_try_validate (γ γᵥ γₕ γᵣ γᵢ γ_val γ_vers γₒ γₚ' : gname) (l lexp ldes ldes' : loc) (dq dq' : dfrac)
                         (expected desired : list val) (ver ver₂ idx₂ : nat) (index₂ : list loc)
-                        (order₂ vers₂ : gmap loc nat) :
+                        (order₂ : gmap loc nat) :
     length expected > 0 → length expected = length desired → ver ≤ ver₂ → length index₂ = S (Nat.div2 (S ver₂)) →
       StronglySorted (gmap_mono order₂) index₂ → Forall (.∈ dom order₂) index₂ → map_Forall (λ _ idx, idx ≤ idx₂) order₂ →
         order₂ !! ldes' = None →
@@ -1881,9 +1881,9 @@ Qed.
                     vers_frag_own γₒ ldes' (S idx₂) -∗
                       own γₒ (◯ (fmap (M := gmap loc) to_agree order₂)) -∗
                         vers_frag_own γ_vers ldes' ver₂ -∗
-                          {{{ lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired  }}}
+                          {{{ lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired }}}
                             try_validate (length expected) #l #ver #ldes #ldes'
-                          {{{ RET #(); True }}}.
+                          {{{ RET #(); lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired }}}.
   Proof.
     iIntros (Hlenexp Hlenmatch Hle Hlenᵢ₂ Hindexordered Hmono Hubord₂ Hldes'fresh) "#Hreadinv #Hinv #◯Hγᵥ #◯Hγᵢ #◯Hγₕ #◯Hγₒ #◯Hγₒcopy #◯Hγ_vers %Φ !# [Hlexp Hldes] HΦ".
     rewrite /try_validate. wp_pures.
@@ -2489,6 +2489,19 @@ Qed.
                 rewrite bool_decide_eq_false_2 //. set_solver. }
               { iPureIntro. set_solver. } }
             iModIntro.
+            wp_pures.
+            wp_apply (wp_try_validate with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+            { done. }
+            { done. }
+            { lia. }
+            { done. }
+            { done. }
+            { eapply Forall_impl; eauto. congruence. }
+            { done. }
+            { rewrite -not_elem_of_dom Hdomord₂ //. }
+            iIntros "[Hlexp Hldes]".
+            wp_pures. iModIntro.
+            iApply ("HΦ" with "[$]").
             rewrite /try_validate.
             wp_pures.
             iClear "◯Hγᵣ Hcasinv".
