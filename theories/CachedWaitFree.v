@@ -2170,11 +2170,11 @@ Qed.
     (γ γᵥ γₕ γᵣ γᵢ γ_val γ_vers γₒ : gname)
     (l lexp ldes ldes' : loc)
     (dq dq' : dfrac)
-    (expected desired : list val)
+  (expected desired cache : list val)
     (Φ : val → iProp Σ)
     (log log₁ : gmap loc (gname * list val))
     (marked_backup : val)
-    (backup copy : loc)
+    (backup backup' copy : loc)
     (requests₁ : list (gname * gname * loc))
     (vers₁ order₁ : gmap loc nat)
     (index₁ : list loc)
@@ -2183,8 +2183,10 @@ Qed.
     (γₚ γₑ γₗ γₜ : gname) :
     length expected > 0 →
     length expected = length desired →
+    length cache = length expected →
     expected ≠ desired →
-    last index₁ = Some backup →
+    last index₁ = Some backup' →
+    (if Nat.even ver₁ then snd <$> log₁ !! backup' = Some cache else marked_backup = InjLV #ldes') →
     map_Forall (λ _ '(_, value), length value = length expected) log₁ →
     length index₁ = S (Nat.div2 (S ver₁)) →
     NoDup index₁ →
@@ -2214,11 +2216,11 @@ Qed.
     l ↦ #ver₁ -∗
     log_tokens log₁ -∗
     mono_nat_auth_own γᵥ (1/4) ver₁ -∗
-    (l +ₗ 2) ↦∗{#1/2} expected -∗
+    (l +ₗ 2) ↦∗{#1/2} cache -∗
     (if Nat.even ver₁ then
       index_auth_own γᵢ (1/4) index₁ ∗
       mono_nat_auth_own γᵥ (1/4) ver₁ ∗
-      (l +ₗ 2) ↦∗{#1/2} expected
+      (l +ₗ 2) ↦∗{#1/2} cache
     else True) -∗
     (▷ read_inv γ γᵥ γₕ γᵢ γ_val l (length expected) ={⊤ ∖ ↑readN, ⊤}=∗ emp) -∗
     mono_nat_auth_own γᵥ (1/2) ver₁ -∗
@@ -2241,7 +2243,7 @@ Qed.
       ldes' ↦∗□ desired ∗
       vers_frag_own γₒ ldes' (S idx₁).
   Proof.
-    iIntros (Hpos Hleneq Hne Hindex₁ Hloglen₁ Hlenᵢ₁ Hnodup₁ Hrange₁ 
+    iIntros (Hpos Hleneq Hlencache Hne Hindex₁ Hcache₁ Hloglen₁ Hlenᵢ₁ Hnodup₁ Hrange₁ 
             Hvallogged Hdomord Hvers₁ Hdomvers₁ Hinj₁ Hidx₁ Hmono₁ Hubord₁).
     iIntros "#Hreadinv #Hinv #Hcasinv #◯Hγᵣ #◯Hγₕ #□Hbackup".
     iIntros "Hγₜ Hldes' Hver Hlogtokens ●Hγᵥ Hcache".
@@ -2382,6 +2384,14 @@ Qed.
     { iIntros (->). 
       iApply (array_pointsto_pointsto_persist with "Hldes' □Hbackup"); first done.
       lia. }
+    assert (backup' ≠ ldes') as Hnoaba'.
+    { intros ->. 
+      apply last_Some_elem_of in Hindex₁.
+      rewrite Forall_forall in Hrange₁.
+      apply Hrange₁ in Hindex₁.
+      rewrite elem_of_dom in Hindex₁.
+      destruct Hindex₁.
+      congruence. }
     iMod (array_persist with "Hldes'") as "#Hldes'".
     iPoseProof (log_tokens_update with "Hlogtokens Hγₚ' Hldes'") as "Hlogtokens".
     { done. }
@@ -2392,8 +2402,8 @@ Qed.
       { rewrite lookup_insert //=. }
       { iPureIntro. eapply Forall_impl; first done.
         simpl. set_solver. }
-      { iPureIntro. destruct (Nat.even ver₁); last done.
-        rewrite lookup_insert_ne //. }
+      { iPureIntro. destruct (Nat.even ver₁) eqn:Heven₁; last done.
+        rewrite lookup_insert_ne; auto. }
       { rewrite bool_decide_eq_false_2 //. set_solver. }
       { rewrite dom_insert. iPureIntro. set_solver. } }
     iModIntro.
@@ -2517,13 +2527,13 @@ Qed.
       iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
       iMod (own_auth_split_self'' with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
       iMod (validated_auth_frag_dup with "●Hγ_val") as "[●Hγ_val ◯Hγ_val₁]".
-      iCombine "Hγ Hγ'" as "Hγ" gives %[_ [=<-<-]].
-      iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁" gives %[_ <-].
+      iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+      iCombine "Hbackup₁ Hbackup₁'" gives %[_ <-].
       iPoseProof (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as "<-".
       iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₁".
       iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ") as %[_ Hle₁].
-      iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
-      rewrite dfrac_op_own Qp.half_half Qp.quarter_quarter.
+      (* iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ". *)
+      (* rewrite dfrac_op_own Qp.half_half Qp.quarter_quarter. *)
       clear Hvers ver'.
       iDestruct "Hpost" as "[(-> & ◯Hγ_val & %ver' & #◯Hγᵥ' & %Hle & ◯Hγᵢ') | ->]";
       destruct Hvalidated₁ as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
@@ -2531,10 +2541,9 @@ Qed.
         wp_cmpxchg_fail.
         iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ #◯Hγₒcopy]".
         iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers #◯Hγ_verscopy]".
-        iDestruct "Hγ" as "[Hγ Hγ']".
-        iDestruct "Hbackup₁" as "[Hbackup₁ Hbackup₁']".
-        replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done.
-        iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+        (* iDestruct "Hγ" as "[Hγ Hγ']". *)
+        (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+        (* iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']". *)
         destruct (decide (backup₁ ∈ validated)) as [Hmem | Hnmem].
         { rewrite bool_decide_eq_true_2 // in Hval. }
         iMod ("Hcl'" with "[$Hbackup₁' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
@@ -2607,7 +2616,7 @@ Qed.
             { set_solver. }
             iIntros ">_ !>".
             wp_pures.
-            wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₂ order₂ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+            wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₂ order₂ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
             { done. }
             { done. }
             { lia. }
@@ -2650,15 +2659,550 @@ Qed.
           rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
           destruct Hcons₁' as ([? ?] & <- & Hlogged₁').
           rewrite Hlogged₁' in Hlogagree.
+          iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁".
           wp_cmpxchg_suc.
           simplify_eq.
+          simpl.
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+          iCombine "Hγ Hγ'" as "Hγ".
+          iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+          rewrite Qp.quarter_quarter.
+          iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          wp_pures.
+          (* wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₁ order₁ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]"). *)
+          wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ver₁ _ index₁ order₁ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+          { done. }
+          { done. }
+          { lia.  }
+          { done. }
+          { done. }
+          { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+          { done. }
+          { rewrite -not_elem_of_dom Hdomord not_elem_of_dom //. }
+          iIntros "Hldes".
+          wp_pures.
+          iModIntro. iApply ("HΦ" with "[$]").
+        + wp_cmpxchg_fail.
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ #◯Hγₒcopy]".
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers #◯Hγ_verscopy]".
+          iMod ("Hcl'" with "[$Hbackup₁ $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+          { iFrame "%". }
+          iMod ("Hcl" with "[$Hγ $□Hbackup $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup₁' $●Hγ_val]") as "_".
+          { iFrame "%". auto. rewrite -Nat.even_spec. iPureIntro. auto. }
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          rewrite /strip.
+          wp_pure credit:"Hcredit".
+          wp_pures.
+          wp_bind (CmpXchg _ _ _).
+          (* Consider the case where the next CAS succeeds or fails *)
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
+          iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+          iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
+          iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
+          iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
+          iMod (own_auth_split_self'' with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ₂]".
+          iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+          iCombine "Hbackup Hbackup₂'" gives %[_ <-].
+          iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+          (* Note: Hpost was already destructed in the outer case, so we reuse ver' and ◯Hγᵢ' *)
+          destruct Hvalidated₂ as [-> | (-> & Heven₂%Nat.even_spec & -> & ->)].
+          * (* Old backup was validated, but current backup is not *)
+            destruct (decide (backup₂ ∈ validated₂)) as [Hmem₂ | Hnmem₂].
+            { rewrite bool_decide_eq_true_2 // in Hval₂. }
+            wp_cmpxchg_fail.
+            rewrite /registry_inv /registered.
+            iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+            iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+            { done. }
+            simpl.
+            iPoseProof (validated_auth_frag_agree with "●Hγ_val ◯Hγ_val") as "%Hmem".
+            iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+            { intros <-. set_solver. }
+            iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+            (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+            iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+            iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+            { iFrame "%". }
+            iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+            { iFrame "%". auto. }
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            rewrite /strip.
+            by wp_pures.
+          * (* Both the current and expected backup are validated *)
+            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree₂".
+            (* iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ'") as %[_ Hle₂']. *)
+            (* Consider whether the current and expected backup pointers are equal *)
+            destruct (decide (backup₂' = backup)) as [-> | Hneq₂].
+            -- (* The CAS will succeed, swapping in the new backup  *)
+              rewrite -lookup_fmap lookup_fmap_Some in Hcons₂'.
+              destruct Hcons₂' as ([? ?] & <- & Hlogged₂').
+              rewrite Hlogged₂' in Hlogagree₂.
+              iCombine "Hbackup Hbackup₂'" as "Hbackup".
+              wp_cmpxchg_suc.
+              simplify_eq. simpl in *.
+              iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
+              iCombine "Hγ Hγ'" as "Hγ".
+              rewrite Qp.quarter_quarter.
+              iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+              iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+              iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              wp_pures.
+              wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₂ order₂ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+              { done. }
+              { done. }
+              { lia. }
+              { done. }
+              { done. }
+              { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+              { done. }
+              { rewrite -not_elem_of_dom Hdomord₂ not_elem_of_dom //. }
+              iIntros "Hldes".
+              wp_pures.
+              iApply ("HΦ" with "[$]").
+            -- wp_cmpxchg_fail.
+              rewrite /registry_inv /registered.
+              iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+              iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+              { done. }
+              simpl.
+              iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+              { intros <-. set_solver. }
+              iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+              (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+              iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+              iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+              { iFrame "%". }
+              iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+              { iFrame "%". iPureIntro. rewrite -Nat.even_spec. auto. } 
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              rewrite /strip.
+              by wp_pures.
+      - (* Both the current and expected backup are validated *)
+        (* The CAS may succeed, depending on the actual value *)
+        iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree".
+        (* iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ'") as %[_ Hle₁']. *)
+        (* Consider whether the current and expected backup pointers are equal *)
+        destruct (decide (backup₁ = backup)) as [-> | Hneq].
+        + (* The first CAS will succeed, swapping in the new backup  *)
+          rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
+          destruct Hcons₁' as ([? ?] & <- & Hlogged₁').
+          (* rewrite Hlogged₁' in Hlogagree. *)
+          iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁".
+          wp_cmpxchg_suc.
+          simpl.
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+          iCombine "Hγ Hγ'" as "Hγ".
+          iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+          rewrite Qp.quarter_quarter.
+          rewrite Hlogagree in Hlogged₁'.
+          injection Hlogged₁' as [=<-<-].
+          simplify_eq. simpl in *.
+          iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          wp_pures.
+          (* wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₁ order₁ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]"). *)
+          wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ver₁ _ index₁ order₁ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+          { done. }
+          { done. }
+          { lia.  }
+          { done. }
+          { done. }
+          { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+          { done. }
+          { rewrite -not_elem_of_dom Hdomord not_elem_of_dom //. }
+          iIntros "Hldes".
+          wp_pures.
+          iModIntro. iApply ("HΦ" with "[$]").
+        + wp_cmpxchg_fail.
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ #◯Hγₒcopy]".
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers #◯Hγ_verscopy]".
+          iMod ("Hcl'" with "[$Hbackup₁ $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+          { iFrame "%". }
+          iMod ("Hcl" with "[$Hγ $□Hbackup $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup₁' $●Hγ_val]") as "_".
+          { iFrame "%". auto. rewrite -Nat.even_spec. iPureIntro. auto. }
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          rewrite /strip.
+          wp_pure credit:"Hcredit".
+          wp_pures.
+          wp_bind (CmpXchg _ _ _).
+          (* Consider the case where the next CAS succeeds or fails *)
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
+          iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+          iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
+          iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
+          iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
+          iMod (own_auth_split_self'' with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ₂]".
+          iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+          iCombine "Hbackup Hbackup₂'" gives %[_ <-].
+          iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+          (* Note: Hpost was already destructed in the outer case, so we reuse ver' and ◯Hγᵢ' *)
+          destruct Hvalidated₂ as [-> | (-> & Heven₂%Nat.even_spec & -> & ->)].
+          * (* Old backup was validated, but current backup is not *)
+            destruct (decide (backup₂ ∈ validated₂)) as [Hmem₂ | Hnmem₂].
+            { rewrite bool_decide_eq_true_2 // in Hval₂. }
+            wp_cmpxchg_fail.
+            rewrite /registry_inv /registered.
+            iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+            iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+            { done. }
+            simpl.
+            iPoseProof (validated_auth_frag_agree with "●Hγ_val ◯Hγ_val") as "%Hmem".
+            iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+            { intros <-. set_solver. }
+            iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+            (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+            iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+            iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+            { iFrame "%". }
+            iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+            { iFrame "%". auto. }
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            rewrite /strip.
+            by wp_pures.
+          * (* Both the current and expected backup are validated *)
+            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree₂".
+            (* iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ'") as %[_ Hle₂']. *)
+            (* Consider whether the current and expected backup pointers are equal *)
+            destruct (decide (backup₂' = backup)) as [-> | Hneq₂].
+            -- (* The CAS will succeed, swapping in the new backup  *)
+              rewrite -lookup_fmap lookup_fmap_Some in Hcons₂'.
+              destruct Hcons₂' as ([? ?] & <- & Hlogged₂').
+              rewrite Hlogged₂' in Hlogagree₂.
+              iCombine "Hbackup Hbackup₂'" as "Hbackup".
+              wp_cmpxchg_suc.
+              simplify_eq. simpl in *.
+              iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
+              iCombine "Hγ Hγ'" as "Hγ".
+              rewrite Qp.quarter_quarter.
+              iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+              iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+              iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              wp_pures.
+              wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₂ order₂ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+              { done. }
+              { done. }
+              { lia. }
+              { done. }
+              { done. }
+              { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+              { done. }
+              { rewrite -not_elem_of_dom Hdomord₂ not_elem_of_dom //. }
+              iIntros "Hldes".
+              wp_pures.
+              iApply ("HΦ" with "[$]").
+            -- wp_cmpxchg_fail.
+              rewrite /registry_inv /registered.
+              iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+              iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+              { done. }
+              simpl.
+              iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+              { intros <-. set_solver. }
+              iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+              (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+              iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+              iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+              { iFrame "%". }
+              iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+              { iFrame "%". iPureIntro. rewrite -Nat.even_spec. auto. } 
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              rewrite /strip.
+              by wp_pures.
+      - (* Old backup was validated, but current backup is not *)
+        wp_cmpxchg_fail.
+        iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ #◯Hγₒcopy]".
+        iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers #◯Hγ_verscopy]".
+        (* iDestruct "Hγ" as "[Hγ Hγ']". *)
+        (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+        (* iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']". *)
+        destruct (decide (backup₁ ∈ validated)) as [Hmem | Hnmem].
+        { rewrite bool_decide_eq_true_2 // in Hval. }
+        iMod ("Hcl'" with "[$Hbackup₁' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+        { iFrame "%". }
+        iMod ("Hcl" with "[$Hγ $□Hbackup $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup₁ $●Hγ_val]") as "_".
+        { iFrame "%". auto. }
+        iApply fupd_mask_intro.
+        { set_solver. }
+        iIntros ">_ !>".
+        rewrite /strip.
+        wp_pure credit:"Hcredit".
+        wp_pures.
+        wp_bind (CmpXchg _ _ _).
+        (* Consider the case where the next CAS succeeds or fails *)
+        iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+        iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
+        iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+        iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
+        iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
+        iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
+        iMod (own_auth_split_self'' with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ₂]".
+        iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+        iCombine "Hbackup Hbackup₂'" gives %[_ <-].
+        iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+        (* Note: Hpost was already destructed in the outer case, so we reuse ver' and ◯Hγᵢ' *)
+        destruct Hvalidated₂ as [-> | (-> & Heven%Nat.even_spec & -> & ->)].
+        + (* Old backup was validated, but current backup is not *)
+          destruct (decide (backup₂ ∈ validated₂)) as [Hmem₂ | Hnmem₂].
+          { rewrite bool_decide_eq_true_2 // in Hval₂. }
+          wp_cmpxchg_fail.
+          rewrite /registry_inv /registered.
+          iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+          iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+          { done. }
+          simpl.
+          iPoseProof (validated_auth_frag_agree with "●Hγ_val ◯Hγ_val") as "%Hmem".
+          iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+          { intros <-. set_solver. }
+          iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+          (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+          iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+          iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+          { iFrame "%". }
+          iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+          { iFrame "%". auto. }
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          rewrite /strip.
+          by wp_pures.
+        + (* Both the current and expected backup are validated *)
+          iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree".
+          iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ'") as %[_ Hle₁'].
+          (* Consider whether the current and expected backup pointers are equal *)
+          destruct (decide (backup₂' = backup)) as [-> | Hneq].
+          * (* The CAS will succeed, swapping in the new backup  *)
+            rewrite -lookup_fmap lookup_fmap_Some in Hcons₂'.
+            destruct Hcons₂' as ([? ?] & <- & Hlogged₂').
+            rewrite Hlogged₂' in Hlogagree.
+            iCombine "Hbackup Hbackup₂'" as "Hbackup".
+            wp_cmpxchg_suc.
+            simplify_eq. simpl in *.
+            iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
+            iCombine "Hγ Hγ'" as "Hγ".
+            rewrite Qp.quarter_quarter.
+            iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+            iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+            iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            wp_pures.
+            wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₂ order₂ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+            { done. }
+            { done. }
+            { lia. }
+            { done. }
+            { done. }
+            { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+            { done. }
+            { rewrite -not_elem_of_dom Hdomord₂ not_elem_of_dom //. }
+            iIntros "Hldes".
+            wp_pures.
+            iApply ("HΦ" with "[$]").
+          * wp_cmpxchg_fail.
+            rewrite /registry_inv /registered.
+            iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+            iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+            { done. }
+            simpl.
+            iPoseProof (validated_auth_frag_agree with "●Hγ_val ◯Hγ_val") as "%Hmem".
+            iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+            { intros <-. set_solver. }
+            iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+            (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+            iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+            iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+            { iFrame "%". }
+            iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+            { iFrame "%". iPureIntro. rewrite -Nat.even_spec. auto. } 
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            rewrite /strip.
+            by wp_pures.
+      - (* Both the current and expected backup are validated *)
+        (* The CAS may succeed, depending on the actual value *)
+        iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree".
+        iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ'") as %[_ Hle₁'].
+        (* Consider whether the current and expected backup pointers are equal *)
+        destruct (decide (backup₁' = backup)) as [-> | Hneq].
+        + (* The first CAS will succeed, swapping in the new backup  *)
+          rewrite -lookup_fmap lookup_fmap_Some in Hcons₁'.
+          destruct Hcons₁' as ([? ?] & <- & Hlogged₁').
+          rewrite Hlogged₁' in Hlogagree.
+          iCombine "Hbackup₁ Hbackup₁'" as "Hbackup₁".
+          wp_cmpxchg_suc.
+          simplify_eq.
+          simpl.
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+          iCombine "Hγ Hγ'" as "Hγ".
+          iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+          rewrite Qp.quarter_quarter.
+          iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          wp_pures.
+          (* wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₁ order₁ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]"). *)
+          wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ver₁ _ index₁ order₁ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+          { done. }
+          { done. }
+          { lia.  }
+          { done. }
+          { done. }
+          { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+          { done. }
+          { rewrite -not_elem_of_dom Hdomord not_elem_of_dom //. }
+          iIntros "Hldes".
+          wp_pures.
+          iModIntro. iApply ("HΦ" with "[$]").
+        + wp_cmpxchg_fail.
+          iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ #◯Hγₒcopy]".
+          iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers #◯Hγ_verscopy]".
+          iMod ("Hcl'" with "[$Hbackup₁ $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+          { iFrame "%". }
+          iMod ("Hcl" with "[$Hγ $□Hbackup $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup₁' $●Hγ_val]") as "_".
+          { iFrame "%". auto. rewrite -Nat.even_spec. iPureIntro. auto. }
+          iApply fupd_mask_intro.
+          { set_solver. }
+          iIntros ">_ !>".
+          rewrite /strip.
+          wp_pure credit:"Hcredit".
+          wp_pures.
+          wp_bind (CmpXchg _ _ _).
+          (* Consider the case where the next CAS succeeds or fails *)
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
+          iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
+          iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
+          iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
+          iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ₁") as %[_ Hle₂].
+          iMod (own_auth_split_self'' with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ₂]".
+          iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+          iCombine "Hbackup Hbackup₂'" gives %[_ <-].
+          iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
+          (* Note: Hpost was already destructed in the outer case, so we reuse ver' and ◯Hγᵢ' *)
+          destruct Hvalidated₂ as [-> | (-> & Heven₂%Nat.even_spec & -> & ->)].
+          * (* Old backup was validated, but current backup is not *)
+            destruct (decide (backup₂ ∈ validated₂)) as [Hmem₂ | Hnmem₂].
+            { rewrite bool_decide_eq_true_2 // in Hval₂. }
+            wp_cmpxchg_fail.
+            rewrite /registry_inv /registered.
+            iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+            iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+            { done. }
+            simpl.
+            iPoseProof (validated_auth_frag_agree with "●Hγ_val ◯Hγ_val") as "%Hmem".
+            iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+            { intros <-. set_solver. }
+            iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+            (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+            iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+            iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+            { iFrame "%". }
+            iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+            { iFrame "%". auto. }
+            iApply fupd_mask_intro.
+            { set_solver. }
+            iIntros ">_ !>".
+            rewrite /strip.
+            by wp_pures.
+          * (* Both the current and expected backup are validated *)
+            iPoseProof (log_auth_frag_agree with "●Hγₕ ◯Hγₕ") as "%Hlogagree₂".
+            (* iDestruct (mono_nat_lb_own_valid with "●Hγᵥ ◯Hγᵥ'") as %[_ Hle₂']. *)
+            (* Consider whether the current and expected backup pointers are equal *)
+            destruct (decide (backup₂' = backup)) as [-> | Hneq₂].
+            -- (* The CAS will succeed, swapping in the new backup  *)
+              rewrite -lookup_fmap lookup_fmap_Some in Hcons₂'.
+              destruct Hcons₂' as ([? ?] & <- & Hlogged₂').
+              rewrite Hlogged₂' in Hlogagree₂.
+              iCombine "Hbackup Hbackup₂'" as "Hbackup".
+              wp_cmpxchg_suc.
+              simplify_eq. simpl in *.
+              iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
+              iCombine "Hγ Hγ'" as "Hγ".
+              rewrite Qp.quarter_quarter.
+              iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
+              iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
+              iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              wp_pures.
+              wp_apply (wp_try_validate _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ index₂ order₂ with "[$] [$] [$] [$] [$] [$] [$] [$] [$]").
+              { done. }
+              { done. }
+              { lia. }
+              { done. }
+              { done. }
+              { eapply Forall_impl; eauto. simpl. intros l' Hl'. set_solver. }
+              { done. }
+              { rewrite -not_elem_of_dom Hdomord₂ not_elem_of_dom //. }
+              iIntros "Hldes".
+              wp_pures.
+              iApply ("HΦ" with "[$]").
+            -- wp_cmpxchg_fail.
+              rewrite /registry_inv /registered.
+              iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hregistered".
+              iPoseProof (big_sepL_lookup_acc with "Hreginv") as "[Hreq Hreginv]".
+              { done. }
+              simpl.
+              iMod (already_linearized with "[$] [$] [$] [$] [$] [$] [$]") as "[HΦ Hreq]".
+              { intros <-. set_solver. }
+              iPoseProof ("Hreginv" with "[$]") as "Hreginv".
+              (* replace (1 / 2 / 2)%Qp with (1 / 4)%Qp by compute_done. *)
+              iDestruct "●Hγₕ" as "[●Hγₕ ●Hγₕ']".
+              iMod ("Hcl'" with "[$Hbackup₂' $Hγ' $●Hγₕ' $●Hγᵣ $●Hγᵥ' $Hreginv $●Hγ_vers $●Hγᵢ' $●Hγₒ]") as "_".
+              { iFrame "%". }
+              iMod ("Hcl" with "[$Hγ $□Hbackup₂ $●Hγₕ $●Hγᵢ $●Hγᵥ $Hcache $Hlock $Hlogtokens $Hver $Hbackup $●Hγ_val]") as "_".
+              { iFrame "%". iPureIntro. rewrite -Nat.even_spec. auto. } 
+              iApply fupd_mask_intro.
+              { set_solver. }
+              iIntros ">_ !>".
+              rewrite /strip.
+              by wp_pures.
+
+
+          iIntros "Hldes".
+          wp_pures.
+          iApply ("HΦ" with "[$]").
+
+
           iPoseProof (registry_agree with "●Hγᵣ ◯Hγᵣ") as "%Hagree".
           (* The new backup pointer cannot be logged, as we have persistent pointsto for all of the previous backup pointers, and full pointsto for the new backup *)
           iAssert (⌜log₁ !! ldes' = None⌝)%I as "%Hldes'fresh".
           { destruct (log₁ !! ldes') eqn:Hbound; last done.
             iExFalso.
             iPoseProof (big_sepM_lookup with "Hlogtokens") as "Hlogged".
-            { done. }
+            { done. }3
             destruct p.
             iDestruct "Hlogged" as "[_ Hldes'₁]".
             iApply (array_pointsto_pointsto_persist with "Hldes' Hldes'₁").
