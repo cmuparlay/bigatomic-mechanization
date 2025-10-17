@@ -2186,7 +2186,7 @@ Qed.
     length cache = length expected →
     expected ≠ desired →
     last index₁ = Some backup' →
-    (if Nat.even ver₁ then snd <$> log₁ !! backup' = Some cache else marked_backup = InjLV #ldes') →
+    (if Nat.even ver₁ then snd <$> log₁ !! backup' = Some cache else True) →
     map_Forall (λ _ '(_, value), length value = length expected) log₁ →
     length index₁ = S (Nat.div2 (S ver₁)) →
     NoDup index₁ →
@@ -2611,7 +2611,8 @@ Qed.
             rewrite Qp.quarter_quarter.
             iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
             iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
-            iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+            iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+            { rewrite Heven //. }
             iApply fupd_mask_intro.
             { set_solver. }
             iIntros ">_ !>".
@@ -2668,7 +2669,8 @@ Qed.
           iCombine "Hγ Hγ'" as "Hγ".
           iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
           rewrite Qp.quarter_quarter.
-          iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          { rewrite Heven //. }
           iApply fupd_mask_intro.
           { set_solver. }
           iIntros ">_ !>".
@@ -2754,7 +2756,8 @@ Qed.
               rewrite Qp.quarter_quarter.
               iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
               iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
-              iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              { rewrite Heven₂ //. }
               iApply fupd_mask_intro.
               { set_solver. }
               iIntros ">_ !>".
@@ -2812,7 +2815,7 @@ Qed.
           rewrite Hlogagree in Hlogged₁'.
           injection Hlogged₁' as [=<-<-].
           simplify_eq. simpl in *.
-          iMod (execute_lp with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
           iApply fupd_mask_intro.
           { set_solver. }
           iIntros ">_ !>".
