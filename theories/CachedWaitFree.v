@@ -2220,10 +2220,9 @@ Qed.
     (γ γᵥ γₕ γᵣ γᵢ γ_val γ_vers γₒ : gname)
     (l lexp ldes ldes' : loc)
     (dq dq' : dfrac)
-  (expected desired cache : list val)
+    (expected desired cache : list val)
     (Φ : val → iProp Σ)
-    (log log₁ : gmap loc (gname * list val))
-    (marked_backup : val)
+    (log₁ : gmap loc (gname * list val))
     (backup backup' copy : loc)
     (requests₁ : list (gname * gname * loc))
     (vers₁ order₁ : gmap loc nat)
@@ -3182,4 +3181,4 @@ Qed.
             rewrite /strip.
             by wp_pures.
     Qed.
-    
+  End cached_wf.
