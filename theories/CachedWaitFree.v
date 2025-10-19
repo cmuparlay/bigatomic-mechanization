@@ -1,9 +1,11 @@
+Require Import iris.program_logic.atomic.
+
 From iris.program_logic Require Import atomic.
 From iris.algebra Require Import auth gmap gset list lib.mono_nat.
 From iris.heap_lang Require Import lang proofmode notation lib.array.
 From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
 Import derived_laws.bi.
-Require Import  Coq.ZArith.Zquot.
+Require Import Stdlib.ZArith.Zquot.
 Require Import stdpp.gmap.
 Require Import iris.bi.interface.
 
@@ -158,8 +160,8 @@ Section cached_wf.
           -- by rewrite bool_decide_eq_false_2.
           -- by intros [=].
       + rewrite (bool_decide_eq_false_2 (v = v')); last done.
-        wp_pures.
         iSpecialize ("HΦ" with "[$]").
+        wp_pures.
         destruct (decide (vs = vs')) as [-> | Hne'];
         rewrite bool_decide_eq_false_2; auto; by intros [=].
   Qed.
@@ -191,6 +193,40 @@ Section cached_wf.
   Definition validated_auth_own γ (q : Qp) (validated : gset loc) := own γ (●{#q} validated).
 
   Definition validated_frag_own γ (l : loc) := own γ (◯ {[ l ]}).
+
+  (* Maximum value over a map *)
+  Definition map_max `{Countable K} (m : gmap K nat) : nat :=
+    map_fold (λ _ ver acc, max ver acc) 0 m.
+
+  Require Import Coq.Structures.GenericMinMax.
+
+  Lemma le_max_iff_nat (x y z : nat) :
+    x ≤ Nat.max y z ↔ x ≤ y ∨ x ≤ z.
+  Proof.
+    split.
+    - intros H.
+      destruct (le_ge_dec y z) as [Hyz|Hzy].
+      + rewrite (Nat.max_r y z) // in H. auto.
+      + rewrite (Nat.max_l y z) in H; auto with lia.
+    - intros [Hy|Hz].
+      + eapply Nat.le_trans; first done. apply Nat.le_max_l.
+      + eapply Nat.le_trans; first done. apply Nat.le_max_r.
+  Qed.
+
+  Lemma map_max_spec {K} `{Countable K} (m : gmap K nat) k v :
+    m !! k = Some v → v ≤ map_max m.
+  Proof.
+    unfold map_max.
+    intros Hlookup.
+    induction m using map_first_key_ind.
+    - done.
+    - rewrite map_fold_insert_first_key //.
+      destruct (decide (i = k)) as [<- | Hne].
+      + rewrite lookup_insert_eq in Hlookup.
+        simplify_eq. rewrite le_max_iff_nat. auto.
+      + rewrite lookup_insert_ne // in Hlookup.
+        rewrite le_max_iff_nat. auto.
+  Qed.
 
   Lemma index_auth_update (l : loc) γ (index : list loc) :
     index_auth_own γ 1 index ==∗
@@ -2193,11 +2229,6 @@ Qed.
     Forall (.∈ dom log₁) index₁ →
     validated ⊆ dom log₁ →
     dom order₁ = dom log₁ →
-    (if bool_decide (1 < size log₁) then
-      ∃ ver'' : nat, vers₁ !! backup = Some ver'' ∧ ver'' ≤ ver₁ ∧
-        map_Forall (λ _ ver''', ver''' ≤ ver'') vers₁ ∧
-        (if bool_decide (ver₁ = ver'') then InjRV #backup = InjLV #backup else True)
-    else vers₁ = ∅) →
     dom vers₁ ⊂ dom log₁ →
     gmap_injective order₁ →
     order₁ !! backup = Some idx₁ →
@@ -2244,7 +2275,7 @@ Qed.
       vers_frag_own γₒ ldes' (S idx₁).
   Proof.
     iIntros (Hpos Hleneq Hlencache Hne Hindex₁ Hcache₁ Hloglen₁ Hlenᵢ₁ Hnodup₁ Hrange₁ 
-            Hvallogged Hdomord Hvers₁ Hdomvers₁ Hinj₁ Hidx₁ Hmono₁ Hubord₁).
+            Hvallogged Hdomord Hdomvers₁ Hinj₁ Hidx₁ Hmono₁ Hubord₁).
     iIntros "#Hreadinv #Hinv #Hcasinv #◯Hγᵣ #◯Hγₕ #□Hbackup".
     iIntros "Hγₜ Hldes' Hver Hlogtokens ●Hγᵥ Hcache".
     iIntros "Hlock Hcl ●Hγᵥ' ●Hγᵣ Hreginv ●Hγ_vers ●Hγᵢ' ●Hγₒ Hcl' ●Hγᵢ ●Hγ_val Hγ Hbackup₁ ●Hγₕ".
@@ -2322,25 +2353,22 @@ Qed.
       naive_solver. }
     assert (ldes' ∉ dom log₁) as Hldes'freshdom.
     { rewrite not_elem_of_dom //. }
-    iMod (vers_auth_update ldes' ver₁ with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_vers]".
+    (* Compute the maximum version in vers₁ and add 1 *)
+    pose (max_ver := S (map_max vers₁)).
+    iMod (vers_auth_update ldes' max_ver with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_vers]".
     { rewrite -not_elem_of_dom. set_solver. }
     (* iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy]". *)
     (* iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy]". *)
     assert (size (<[ldes':=(γₚ', desired)]> log₁) > 1) as Hvers₁multiple.
     { rewrite map_size_insert_None //. lia. }
     iMod (own_auth_split_self with "●Hγₕ") as "[●Hγₕ ◯Hγₕcopy]".
-    assert (map_Forall (λ _ ver'', ver'' ≤ ver₁) (<[ldes':=ver₁]> vers₁)) as Hub₁.
-    { destruct (decide (size log₁ = 1)) as [Hsing | Hsing].
-      - rewrite bool_decide_eq_false_2 in Hvers₁; last lia.
-        subst. rewrite insert_empty map_Forall_singleton //.
-      - rewrite bool_decide_eq_true_2 in Hvers₁; last lia.
-        rewrite map_Forall_insert.
-        destruct Hvers₁ as (ver_invalid₁ & Hvers₁backup & Hver_invalid_le₁ & Hub & _).
-        split; first done.
-        eapply map_Forall_impl; first done.
-        intros l' ver''.
-        simpl. lia.
-        rewrite -not_elem_of_dom. set_solver. }
+    assert (map_Forall (λ _ ver'', ver'' ≤ max_ver) (<[ldes':=max_ver]> vers₁)) as Hub₁.
+    { rewrite map_Forall_insert; last (rewrite -not_elem_of_dom; set_solver).
+      split; first done.
+      subst max_ver. simpl.
+      intros l' ver'' Hlookup.
+      transitivity (map_max vers₁); last lia.
+      by apply map_max_spec. }
     iMod (vers_auth_update ldes' (S idx₁) with "●Hγₒ") as "[●Hγₒ ◯Hγₒ]".
     { rewrite -not_elem_of_dom. set_solver. }
     iMod ("Hcl'" with "[$●Hγ_vers $●Hγᵥ' $●Hγᵣ $●Hγₕ $Hbackup₁ $Hγ Hlft Hrht Hlin Hγₑ $●Hγₒ $●Hγᵢ']") as "_".
@@ -2815,7 +2843,9 @@ Qed.
           rewrite Hlogagree in Hlogged₁'.
           injection Hlogged₁' as [=<-<-].
           simplify_eq. simpl in *.
-          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ cache₁ _ _ _ _ backup backup₁' copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          { by destruct (Nat.even ver₁). }
+          {  }
           iApply fupd_mask_intro.
           { set_solver. }
           iIntros ">_ !>".
