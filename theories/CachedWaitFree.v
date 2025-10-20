@@ -1797,8 +1797,6 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     by iFrame.
   Qed.
 
-  Require Import stdpp.fin_maps.
-
   Lemma map_Forall_subseteq `{Countable K} {V} (m m' : gmap K V) P :
     m ⊆ m' → map_Forall P m' → map_Forall P m.
   Proof.
@@ -3178,5 +3176,5 @@ Qed.
             iIntros ">_ !>".
             rewrite /strip.
             by wp_pures.
-    Qed.
-  End cached_wf.
+  Qed.
+End cached_wf.
