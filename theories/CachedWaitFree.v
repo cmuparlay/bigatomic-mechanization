@@ -668,6 +668,8 @@ Section cached_wf.
       (l +ₗ 1) ↦{# 1/2} marked_backup ∗
       (* Half ownership of logical state *)
       ghost_var γ (1/4) (backup, actual) ∗
+      (* Every value of BigAtomic is unboxed *)
+      ⌜Forall val_is_unboxed actual⌝ ∗
       (* Shared read ownerhip of backup *)
       backup ↦∗□ actual ∗
       (* The most recent version is associated with some other backup pointer *)
@@ -915,7 +917,7 @@ Section cached_wf.
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E. 
-      iInv readN as "(%ver' & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
+      iInv readN as "(%ver' & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
       wp_apply (wp_load_offset with "Hcache").
       { apply list_lookup_lookup_total_lt. lia. }
       iMod (index_frag_alloc with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ]".
@@ -1187,7 +1189,7 @@ Section cached_wf.
       iDestruct "Hsrc" as "[Hsrc Hsrc']".
       wp_load.
       wp_bind (_ <- _)%E.
-      iInv readN as "(%ver & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock & Hval)" "Hcl".
+      iInv readN as "(%ver & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock & Hval)" "Hcl".
       assert (i < length cache) as [v'' Hv'']%lookup_lt_is_Some by lia.
       destruct (Nat.even ver) eqn:Heven.
       + iMod "Hlock" as "(Hγᵢ' & Hγᵥ' & Hcache') /=".
@@ -1308,12 +1310,12 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
   Qed.    
 
   Lemma new_big_atomic_spec (n : nat) (src : loc) dq vs :
-    length vs = n → n > 0 →
+    length vs = n → n > 0 → Forall val_is_unboxed vs →
       {{{ src ↦∗{dq} vs }}}
         new_big_atomic n #src
       {{{ v γ, RET v; src ↦∗{dq} vs ∗ is_cached_wf v γ n ∗ ∃ backup, value γ backup vs  }}}.
   Proof.
-    iIntros "%Hlen %Hpos %Φ Hsrc HΦ".
+    iIntros "%Hlen %Hpos %Hunboxed %Φ Hsrc HΦ".
     wp_rec.
     wp_pures.
     wp_alloc l as "Hl".
@@ -1526,7 +1528,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
     wp_bind (! _)%E.
-    iInv readN as "(%ver & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
+    iInv readN as "(%ver & %log & %actual & %cache & %marked_backup & %backup & %backup' & %index & %validated & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup & >%Hindex & >%Hvalidated & >%Hlenactual & >%Hlencache & >%Hloglen & Hlog & >%Hlogged & >●Hlog & >%Hlenᵢ & >%Hnodup & >%Hrange & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons & Hlock)" "Hcl".
     wp_load.
     iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb".
     eapply backup_logged in Hrange as Hbackup_logged; last done.
@@ -1545,7 +1547,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     iIntros (vers vdst dst) "(Hdst & %Hlen' & %Hsorted & %Hbound & #Hcons)".
     wp_pures.
     wp_bind (! _)%E.
-    iInv readN as "(%ver' & %log' & %actual' & %cache' & %marked_backup₁ & %backup₁ & %backup₁' & %index' & %validated₁ & >Hver & >Hbackup & >Hγ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock & >●Hγ_val & >%Hval & >%Hvallogged)" "Hcl".
+    iInv readN as "(%ver' & %log' & %actual' & %cache' & %marked_backup₁ & %backup₁ & %backup₁' & %index' & %validated₁ & >Hver & >Hbackup & >Hγ & >%Hunboxed₁ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock & >●Hγ_val & >%Hval & >%Hvallogged)" "Hcl".
     wp_load.
     iMod "AU" as (backup'' vs') "[Hγ' [_ Hconsume]]".
     iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
@@ -1587,7 +1589,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
       { apply auth_frag_mono. set_solver. }
       wp_pures.
       wp_bind (! _)%E.
-      iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %marked_backup₂ & %backup₂ & %backup₂' & %index'' & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock & >●Hγ_val & >%Hval₁)" "Hcl".
+      iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %marked_backup₂ & %backup₂ & %backup₂' & %index'' & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed₂ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock & >●Hγ_val & >%Hval₁)" "Hcl".
       wp_load.
       iDestruct (mono_nat_lb_own_valid with "●Hγᵥ Hlb'") as %[_ Hle'].
       iPoseProof (log_auth_frag_agree with "●Hlog ◯Hlog") as "%Hlookup'".
@@ -1671,36 +1673,6 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         { done. }
         auto.
   Qed.
-
-  Require Import iris.bi.lib.atomic.
-
-  (* Lemma NoDup_lookup_ne {A} (l : list A) (i j : nat) (x y : A) :
-    NoDup l →
-      i ≠ j →
-        l !! i = Some x →
-          l !! j = Some y →
-            x ≠ y.
-  Proof.
-    induction l as [| h t IH].
-    - done.
-    - simpl. intros Hunique Hne Hx Hy. simpl in  *)
-
-  (* Definition cached_wf_inv (γ γₕ γᵣ : gname) (l : loc) : iProp Σ :=
-    ∃ log (actual : list val) (marked_backup : val) (backup : loc) requests,
-      (* Ownership of the backup location *)
-      (l +ₗ 1) ↦{# 1/2} marked_backup ∗
-      ⌜marked_backup = InjLV #backup ∨ marked_backup = InjRV #backup⌝ ∗
-      (* Owernship of the logical state *)
-      ghost_var γ (1/4) actual ∗
-      (* Backup is exactly the logical state  *)
-      ⌜snd <$> log !! backup = Some actual⌝ ∗
-      (* Own other half of log in top-level invariant *)
-      log_auth_own γₕ (1/2) log ∗
-      (* Other 1/4 of logical state in top-level invariant *)
-      (* Ownership of request registry *)
-      registry γᵣ requests ∗
-      (* State of request registry *)
-      registry_inv γ backup actual requests (dom log). *)
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   Lemma linearize_cas γ (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (gname * list val)) (γₜ : gname) :
@@ -1941,7 +1913,7 @@ Qed.
     - rewrite Zrem_even even_inj Heven /=.
       wp_pures.
       wp_bind (CmpXchg _ _ _).
-      iInv readN as "(%ver₃ & %log₃ & %actual₃ & %cache₃ & %marked_backup₃ & %backup₃ & %backup₃' & %index₃ & %validated₃ & >Hver & >Hbackup & >Hγ & >#□Hbackup₃ & >%Hindex₃ & >%Hvalidated₃ & >%Hlenactual₃ & >%Hlencache₃ & >%Hloglen₃ & Hlogtokens & >%Hlogged₃ & >●Hγₕ & >%Hlenᵢ₃ & >%Hnodup₃ & >%Hrange₃ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₃ & Hlock & >●Hγ_val & >%Hval₃ & >%Hvallogged₃)" "Hcl".
+      iInv readN as "(%ver₃ & %log₃ & %actual₃ & %cache₃ & %marked_backup₃ & %backup₃ & %backup₃' & %index₃ & %validated₃ & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup₃ & >%Hindex₃ & >%Hvalidated₃ & >%Hlenactual₃ & >%Hlencache₃ & >%Hloglen₃ & Hlogtokens & >%Hlogged₃ & >●Hγₕ & >%Hlenᵢ₃ & >%Hnodup₃ & >%Hrange₃ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₃ & Hlock & >●Hγ_val & >%Hval₃ & >%Hvallogged₃)" "Hcl".
       iInv cached_wfN as "(%ver'' & %log₃' & %actual₃' & %marked_backup₃' & %backup₃'' & %requests₃ & %vers₃ & %index₃' & %order₃ & %idx₃ & >●Hγᵥ' & >Hbackup₃' & >Hγ' & >%Hcons₃' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₃ & >%Hvers₃ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₃ & >%Hinj₃ & >%Hidx₃ & >%Hmono₃ & >%Hubord₃)" "Hcl'".
       iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
       iDestruct (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as %<-.
@@ -2050,7 +2022,7 @@ Qed.
       iIntros "!> [Hdst Hsrc]".
       wp_pures.
       wp_bind (_ <- _)%E.
-      iInv readN as "(%ver₄ & %log₄ & %actual₄ & %cache₄ & %marked_backup₄ & %backup₄ & %backup₄' & %index₄ & %validated₄ & >Hver & >Hbackup & >Hγ & >#□Hbackup₄ & >%Hindex₄ & >%Hvalidated₄ & >%Hlenactual₄ & >%Hlencache₄ & >%Hloglen₄ & Hlogtokens & >%Hlogged₄ & >●Hγₕ & >%Hlenᵢ₄ & >%Hnodup₄ & >%Hrange₄ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₄ & Hlock & >●Hγ_val & >%Hvallogged₄)" "Hcl".
+      iInv readN as "(%ver₄ & %log₄ & %actual₄ & %cache₄ & %marked_backup₄ & %backup₄ & %backup₄' & %index₄ & %validated₄ & >Hver & >Hbackup & >Hγ & >%Hunboxed₄ & >#□Hbackup₄ & >%Hindex₄ & >%Hvalidated₄ & >%Hlenactual₄ & >%Hlencache₄ & >%Hloglen₄ & Hlogtokens & >%Hlogged₄ & >●Hγₕ & >%Hlenᵢ₄ & >%Hnodup₄ & >%Hrange₄ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₄ & Hlock & >●Hγ_val & >%Hvallogged₄)" "Hcl".
       iInv cached_wfN as "(%ver'' & %log₄' & %actual₄' & %marked_backup₄' & %backup₄'' & %requests₄ & %vers₄ & %index₄' & %order₄ & %idx₄ & >●Hγᵥ'' & >Hbackup₄' & >Hγ' & >%Hcons₄' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₄ & >%Hvers₄ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₄ & >%Hinj₄ & >%Hidx₄ & >%Hmono₄ & >%Hubord₄)" "Hcl'".
       wp_store.
       change 2%Z with (Z.of_nat 2). simplify_eq.
@@ -2107,7 +2079,7 @@ Qed.
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
       iClear "Hlock".
-      iInv readN as "(%ver₅ & %log₅ & %actual₅ & %cache₅ & %marked_backup₅ & %backup₅ & %backup₅' & %index₅ & %validated₅ & >Hver & >Hbackup & >Hγ & >#□Hbackup₅ & >%Hindex₅ & >%Hvalidated₅ & >%Hlenactual₅ & >%Hlencache₅ & >%Hloglen₅ & Hlogtokens & >%Hlogged₅ & >●Hγₕ & >%Hlenᵢ₅ & >%Hnodup₅ & >%Hrange₅ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₅ & Hlock & ●Hγ_val & >%Hvallogged₅)" "Hcl".
+      iInv readN as "(%ver₅ & %log₅ & %actual₅ & %cache₅ & %marked_backup₅ & %backup₅ & %backup₅' & %index₅ & %validated₅ & >Hver & >Hbackup & >Hγ & >%Hunboxed₅ & >#□Hbackup₅ & >%Hindex₅ & >%Hvalidated₅ & >%Hlenactual₅ & >%Hlencache₅ & >%Hloglen₅ & Hlogtokens & >%Hlogged₅ & >●Hγₕ & >%Hlenᵢ₅ & >%Hnodup₅ & >%Hrange₅ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₅ & Hlock & ●Hγ_val & >%Hvallogged₅)" "Hcl".
       iInv cached_wfN as "(%ver'' & %log₅' & %actual₅' & %marked_backup₅' & %backup₅'' & %requests₅ & %vers₅ & %index₅' & %order₅ & %idx₅ & >●Hγᵥ'' & >Hbackup₅' & >Hγ' & >%Hcons₅' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₅ & >%Hvers₅ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₅ & >%Hinj₅ & >%Hidx₅ & >%Hmono₅ & >%Hubord₅)" "Hcl'".
       iCombine "Hbackup Hbackup₅'" gives %[_ <-].
       destruct (decide (marked_backup₅ = InjLV #ldes')) as [-> | Hneq]; first last.
@@ -2250,6 +2222,7 @@ Qed.
     order₁ !! backup = Some idx₁ →
     StronglySorted (gmap_mono order₁) index₁ →
     map_Forall (λ _ idx', idx' ≤ idx₁) order₁ →
+    Forall val_is_unboxed desired →
     (* Persistent hypotheses *)
     inv readN (read_inv γ γᵥ γₕ γᵢ γ_val l (length expected)) -∗
     inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ l) -∗
@@ -2291,7 +2264,7 @@ Qed.
       vers_frag_own γₒ ldes' (S idx₁).
   Proof.
     iIntros (Hpos Hleneq Hlencache Hne Hindex₁ Hcache₁ Hloglen₁ Hlenᵢ₁ Hnodup₁ Hrange₁ 
-            Hvallogged Hdomord Hvers₁ Hdomvers₁ Hinj₁ Hidx₁ Hmono₁ Hubord₁).
+            Hvallogged Hdomord Hvers₁ Hdomvers₁ Hinj₁ Hidx₁ Hmono₁ Hubord₁ Hunboxed).
     iIntros "#Hreadinv #Hinv #Hcasinv #◯Hγᵣ #◯Hγₕ #□Hbackup".
     iIntros "Hγₜ Hldes' Hver Hlogtokens ●Hγᵥ Hcache".
     iIntros "Hlock Hcl ●Hγᵥ' ●Hγᵣ Hreginv ●Hγ_vers ●Hγᵢ' ●Hγₒ Hcl' ●Hγᵢ ●Hγ_val Hγ Hbackup₁ ●Hγₕ".
@@ -2456,9 +2429,34 @@ Qed.
     iModIntro.
     iFrame "% # ∗".
   Qed.
-  
+
+
+  Lemma Forall2_symmetric {A} (R : relation A) :
+    Symmetric R → Symmetric (Forall2 R).
+  Proof.
+    intros Hsym xs ys Hxy.
+    induction Hxy; by constructor.
+  Qed.
+
+  Lemma all_vals_compare_safe vs vs' :
+    Forall val_is_unboxed vs →
+      length vs = length vs' →
+        Forall2 vals_compare_safe vs vs'.
+  Proof.
+    revert vs'. induction vs as [| v vs IH].
+    - intros vs' Hunboxed Hlen. 
+      symmetry in Hlen. 
+      rewrite length_zero_iff_nil in Hlen. simplify_eq. constructor.
+    - intros vs' Hunboxed Hlen.
+      destruct vs' as [|v' vs'].
+      { done. }
+      simplify_eq. inv Hunboxed. constructor.
+      + by left.
+      + auto.
+  Qed.
+
   Lemma cas_spec (γ γᵥ γₕ γᵣ γᵢ γ_val γ_vers γₒ : gname) (l lexp ldes : loc) (dq dq' : dfrac) (expected desired : list val) :
-    length expected > 0 → length expected = length desired →
+    length expected > 0 → length expected = length desired → Forall val_is_unboxed expected → Forall val_is_unboxed desired → 
       inv readN (read_inv γ γᵥ γₕ γᵢ γ_val l (length expected)) -∗
         inv cached_wfN (cached_wf_inv γ γᵥ γₕ γᵢ γᵣ γ_vers γₒ l) -∗
           lexp ↦∗{dq} expected -∗
@@ -2468,7 +2466,7 @@ Qed.
               <<{ if bool_decide (actual = expected) then ∃ backup', value γ backup' desired else value γ backup actual |
                   RET #(bool_decide (actual = expected)); lexp ↦∗{dq} expected ∗ ldes ↦∗{dq'} desired }>>.
     Proof.
-      iIntros (Hpos Hleneq) "#Hreadinv #Hinv Hlexp Hldes %Φ AU". 
+      iIntros (Hpos Hleneq Hexpunboxed Hdesunboxed) "#Hreadinv #Hinv Hlexp Hldes %Φ AU". 
       wp_rec.
       wp_pure credit:"Hcredit".
       wp_pures.
@@ -2503,7 +2501,15 @@ Qed.
         rewrite -Hcopylen.
         wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
         { done. }
-        { admit. }
+        { clear Hne Hpos Hleneq. generalize dependent expected. induction actual.
+          - intros. simplify_list_eq. symmetry in Hcopylen. rewrite length_zero_iff_nil in Hcopylen. subst. constructor. 
+          - intros expected Hexpunboxed Hlenexp.
+            simplify_list_eq. destruct expected as [| v' expected].
+            { done. }
+            constructor.
+            + right.
+
+           }
         iIntros "[Hcopy Hlexp]".
         rewrite bool_decide_eq_false_2; last done.
         wp_pures. iApply ("HΦ" with "[$]"). }
@@ -2570,7 +2576,7 @@ Qed.
       wp_pure credit:"Hcredit'".
       wp_pures.
       wp_bind (CmpXchg _ _ _)%E.
-      iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & %validated & >Hver & >Hbackup₁ & >Hγ & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock & >●Hγ_val & >%Hval & >%Hvallogged)" "Hcl".
+      iInv readN as "(%ver₁ & %log₁ & %actual₁ & %cache₁ & %marked_backup₁ & %backup₁ & %backup₁' & %index₁ & %validated & >Hver & >Hbackup₁ & >Hγ & >%Hunboxed & >#□Hbackup & >%Hindex₁ & >%Hvalidated₁ & >%Hlenactual₁ & >%Hlencache₁ & >%Hloglen₁ & Hlogtokens & >%Hlogged₁ & >●Hγₕ & >%Hlenᵢ₁ & >%Hnodup₁ & >%Hrange₁ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₁ & Hlock & >●Hγ_val & >%Hval & >%Hvallogged)" "Hcl".
       iInv cached_wfN as "(%ver'' & %log₁' & %actual₁' & %marked_backup₁' & %backup₁'' & %requests₁ & %vers₁ & %index₁' & %order₁ & %idx₁ & >●Hγᵥ' & >Hbackup₁' & >Hγ' & >%Hcons₁' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₁ & >%Hvers₁ & >●Hγᵢ' & >●Hγₒ & >%Hdomord & >%Hinj₁ & >%Hidx₁ & >%Hmono₁ & >%Hubord₁)" "Hcl'".
       iPoseProof (index_auth_auth_agree with "●Hγᵢ ●Hγᵢ'") as "<-".
       iDestruct (mono_nat_auth_own_agree with "●Hγᵥ ●Hγᵥ'") as %[_ <-].
@@ -2606,7 +2612,7 @@ Qed.
         wp_pures.
         wp_bind (CmpXchg _ _ _).
         (* Consider the case where the next CAS succeeds or fails *)
-        iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+        iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
         iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
         iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
         iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
@@ -2764,7 +2770,7 @@ Qed.
           wp_pures.
           wp_bind (CmpXchg _ _ _).
           (* Consider the case where the next CAS succeeds or fails *)
-          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
           iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
           iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
           iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
@@ -2943,7 +2949,7 @@ Qed.
           wp_pures.
           wp_bind (CmpXchg _ _ _).
           (* Consider the case where the next CAS succeeds or fails *)
-          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
           iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
           iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
           iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
@@ -3008,7 +3014,7 @@ Qed.
           wp_pures.
           wp_bind (CmpXchg _ _ _).
           (* Consider the case where the next CAS succeeds or fails *)
-          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
           iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
           iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
           iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
@@ -3138,7 +3144,7 @@ Qed.
           wp_pures.
           wp_bind (CmpXchg _ _ _).
           (* Consider the case where the next CAS succeeds or fails *)
-          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
+          iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlogtokens & >%Hlogged₂ & >●Hγₕ & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hval₂ & >%Hvallogged₂)" "Hcl".
           iInv cached_wfN as "(%ver'' & %log₂' & %actual₂' & %marked_backup₂' & %backup₂'' & %requests₂ & %vers₂ & %index₂' & %order₂ & %idx₂ & >●Hγᵥ' & >Hbackup₂' & >Hγ' & >%Hcons₂' & >●Hγₕ' & >●Hγᵣ & Hreginv & >●Hγ_vers & >%Hdomvers₂ & >%Hvers₂ & >●Hγᵢ' & >●Hγₒ & >%Hdomord₂ & >%Hinj₂ & >%Hidx₂ & >%Hmono₂ & >%Hubord₂)" "Hcl'".
           iDestruct (log_auth_auth_agree with "●Hγₕ ●Hγₕ'") as %<-.
           iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#◯Hγᵥ₂".
