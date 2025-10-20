@@ -54,7 +54,7 @@ Definition read' (n : nat) : val :=
     if: is_valid "backup" && (!"l" = "ver") then (
       ("data", "backup", "ver")
     ) else (
-      array_copy_to "data" (strip "backup") #n;;
+      array_copy_to "data" (strip !("l" +ₗ #1)) #n;;
       ("data", "backup", "ver")
     ).
 
