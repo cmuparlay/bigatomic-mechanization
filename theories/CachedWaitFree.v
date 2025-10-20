@@ -51,7 +51,8 @@ Definition read' (n : nat) : val :=
     let: "ver" := !"l" in
     let: "data" := array_clone ("l" +ₗ #2) #n in
     let: "backup" := !("l" +ₗ #1) in
-    if: is_valid "backup" && (!"l" = "ver") then (
+    let: "p" := NewProph in
+    if: is_valid "backup" && ((Resolve !"l" "p" #()) = "ver") then (
       ("data", "backup", "ver")
     ) else (
       array_copy_to "data" (strip !("l" +ₗ #1)) #n;;
