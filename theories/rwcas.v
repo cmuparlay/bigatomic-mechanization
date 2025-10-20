@@ -131,10 +131,11 @@ Section rwcas.
     specialize Hincl with i.
     rewrite option_included in Hincl.
     destruct Hincl as [Hnone | (a & b & H & H' & Heq)].
-    { by rewrite lookup_insert in Hnone. }
-    rewrite lookup_insert in H. simplify_eq.
+    { by rewrite lookup_insert_eq in Hnone. }
+    rewrite lookup_insert_eq in H. simplify_eq.
     rewrite lookup_map_seq_0 list_lookup_fmap_Some in H'.
-    destruct H' as ([γₜ' m'] & Hlookup & ->).
+    destruct H' as ([γₜ' m'] & Hlookup & ?).
+    simplify_eq.
     destruct Heq as [Heq | Hle].
     - apply (inj to_agree) in Heq.
       by simplify_eq.

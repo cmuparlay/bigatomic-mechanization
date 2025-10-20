@@ -22,9 +22,6 @@ Global Program Instance Op_Nat_div : BinOp Nat.div :=
   {| TBOp := Z.div ; TBOpInj := Nat2Z.inj_div |}.
 Add Zify BinOp Op_Nat_div.
 
-Require Import stdpp.sorting.
-Require Import Coq.Structures.GenericMinMax.
-
 Definition new_big_atomic (n : nat) : val :=
   λ: "src",
     let: "dst" := AllocN #(S (S n)) #0 in

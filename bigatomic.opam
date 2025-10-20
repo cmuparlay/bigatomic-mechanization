@@ -7,7 +7,7 @@ license: "MIT"
 homepage: "https://github.com/anonymous/anonymous"
 bug-reports: "https://github.com/anonymous/anonymous/issues"
 depends: [
-  "dune" {>= "3.8"}
+  "dune" {>= "3.9"}
   "coq" {>= "8.16"}
   "coq-stdpp" {>= "1.10.0"}
   "coq-iris" {>= "4.3.0"}

@@ -3,7 +3,7 @@ From iris.algebra Require Import auth gmap list lib.mono_nat.
 From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
 From iris.heap_lang Require Import lang proofmode notation lib.array.
 Import derived_laws.bi.
-Require Import  Coq.ZArith.Zquot.
+Require Import Stdlib.ZArith.Zquot.
 
 Ltac Zify.zify_post_hook ::= Z.to_euclidean_division_equations.
 
