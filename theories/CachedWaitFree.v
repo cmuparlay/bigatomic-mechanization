@@ -4,15 +4,16 @@ From iris.program_logic Require Import atomic.
 From iris.algebra Require Import auth gmap gset list lib.mono_nat.
 From iris.heap_lang Require Import lang proofmode notation lib.array.
 From iris.base_logic.lib Require Import token ghost_var mono_nat invariants.
+
+(* plus specific modules that carry instances you need *)
 Import derived_laws.bi.
 Require Import Stdlib.ZArith.Zquot.
-Require Import stdpp.gmap.
 Require Import iris.bi.interface.
 
 Ltac Zify.zify_post_hook ::= Z.to_euclidean_division_equations.
 
 (* Begin hooks to make `lia` work witrefines_right_CG_dequeueh Nat.modulo and Nat.div *)
-Require Import Arith ZArith ZifyClasses ZifyInst Lia.
+From Stdlib Require Import Arith ZArith ZifyClasses ZifyInst Lia.
 
 Global Program Instance Op_Nat_mod : BinOp Nat.modulo :=
   {| TBOp := Z.modulo ; TBOpInj := Nat2Z.inj_mod |}.
@@ -21,6 +22,8 @@ Add Zify BinOp Op_Nat_mod.
 Global Program Instance Op_Nat_div : BinOp Nat.div :=
   {| TBOp := Z.div ; TBOpInj := Nat2Z.inj_div |}.
 Add Zify BinOp Op_Nat_div.
+
+From stdpp Require Import base tactics option list gmap sorting.
 
 Definition new_big_atomic (n : nat) : val :=
   λ: "src",
@@ -127,8 +130,8 @@ Section cached_wf.
     {{{ l ↦∗{dq} vs ∗ l' ↦∗{dq'} vs' }}}
       array_equal #l #l' #(length vs)
     {{{ RET #(bool_decide (vs = vs')); l ↦∗{dq} vs ∗ l' ↦∗{dq'} vs' }}}.
-  Proof.
     iIntros (Hlen Hsafe Φ) "[Hl Hl'] HΦ".
+    Proof.
     iInduction vs as [|v vs] "IH" forall (l l' vs' Hsafe Hlen) "HΦ".
     - wp_rec. wp_pures.
       apply symmetry, length_zero_iff_nil in Hlen as ->.

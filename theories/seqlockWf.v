@@ -324,7 +324,7 @@ Section seqlock.
       by repeat (iSplit; first by iPureIntro; constructor).
     - wp_pures.
       destruct vdst as [| v vdst].
-      { assert (@List.length val [] > 0) as Hlen by lia. inv Hlen.  }
+      { simplify_list_eq. lia. }
       clear Hdone. simpl in *. rewrite array_cons.
       iDestruct "Hdst" as "[Hhd Htl]".
       wp_bind (! _)%E.
@@ -832,7 +832,7 @@ Section seqlock.
     is_seqlock v γ (length vs') -∗
       src ↦∗{dq} vs' -∗
         <<{ ∀∀ vs, value γ vs  }>> 
-          write (length vs') v #src @ ∅
+          write (length vs') v #src @ ↑N
         <<{ value γ vs' | RET #(); src ↦∗{dq} vs' }>>.
   Proof.
     iIntros "(%dst & %γₕ & %γᵥ & %γᵣ & -> & #Hinv) Hsrc %Φ AU".
