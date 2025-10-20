@@ -2659,7 +2659,7 @@ Qed.
             rewrite Qp.quarter_quarter.
             iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
             iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
-            iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+            iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
             { rewrite Heven //. }
             { destruct (decide (1 < size log₂)).
               - rewrite bool_decide_eq_true_2 //.
@@ -2724,7 +2724,7 @@ Qed.
           iCombine "Hγ Hγ'" as "Hγ".
           iCombine "●Hγₕ ●Hγₕ'" as "●Hγₕ".
           rewrite Qp.quarter_quarter.
-          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
           { rewrite Heven //. }
           { destruct (decide (1 < size log₁)).
             - rewrite bool_decide_eq_true_2 //.
@@ -2817,7 +2817,7 @@ Qed.
               rewrite Qp.quarter_quarter.
               iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
               iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
-              iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
               { rewrite Heven₂ //. }
               { destruct (decide (1 < size log₂)).
                 - rewrite bool_decide_eq_true_2 //.
@@ -2883,7 +2883,7 @@ Qed.
           rewrite Hlogagree in Hlogged₁'.
           injection Hlogged₁' as [=<-<-].
           simplify_eq. simpl in *.
-          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ cache₁ _ _ _ _ backup backup₁' copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+          iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ cache₁ _ _ backup backup₁' copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
           { by destruct (Nat.even ver₁). }
           { destruct (decide (1 < size log₁)).
             - rewrite bool_decide_eq_true_2 //.
@@ -3061,7 +3061,7 @@ Qed.
               rewrite Qp.quarter_quarter.
               iMod (own_auth_split_self' with "●Hγₒ") as "[●Hγₒ ◯Hγₒcopy']".
               iMod (own_auth_split_self' with "●Hγ_vers") as "[●Hγ_vers ◯Hγ_verscopy']".
-              iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
+              iMod (execute_lp _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ expected _ _ backup backup copy with "[$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$] [$]") as "(%Hfresh & HΦ & #◯Hγ_vers & [%γₚ' #◯Hγₕ₁] & #Hldes' & #◯Hγₒ)"; try done.
               { rewrite Heven₂ //. }
               { destruct (decide (1 < size log₂)).
                 - rewrite bool_decide_eq_true_2 //.
