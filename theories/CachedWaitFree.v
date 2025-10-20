@@ -1523,7 +1523,7 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
           read' n #l @ ↑readN
         <<{ ∃∃ (marked_backup : val) (copy backup : loc) (ver : nat) (γₜ : gname), value γ backup vs | 
             RET (#copy, marked_backup, #ver)%V; 
-            copy ↦∗ vs ∗ ⌜length vs = n⌝ ∗ log_frag_own γₕ backup γₜ vs ∗ mono_nat_lb_own γᵥ ver ∗ ((⌜marked_backup = InjRV #backup⌝ ∗ validated_frag_own γ_val backup ∗ ∃ ver', mono_nat_lb_own γᵥ ver' ∗ ⌜ver ≤ ver'⌝ ∗ index_frag_own γᵢ (Nat.div2 ver') backup) ∨ ⌜marked_backup = InjLV #backup⌝) }>>.
+            copy ↦∗ vs ∗ ⌜Forall val_is_unboxed vs⌝ ∗ ⌜length vs = n⌝ ∗ log_frag_own γₕ backup γₜ vs ∗ mono_nat_lb_own γᵥ ver ∗ ((⌜marked_backup = InjRV #backup⌝ ∗ validated_frag_own γ_val backup ∗ ∃ ver', mono_nat_lb_own γᵥ ver' ∗ ⌜ver ≤ ver'⌝ ∗ index_frag_own γᵢ (Nat.div2 ver') backup) ∨ ⌜marked_backup = InjLV #backup⌝) }>>.
   Proof.
     iIntros (Hpos) "#Hinv %Φ AU".
     wp_rec.
@@ -2501,7 +2501,7 @@ Qed.
         rewrite -Hcopylen.
         wp_apply (wp_array_equal with "[$Hcopy $Hlexp]").
         { done. }
-        { clear Hne Hpos Hleneq. generalize dependent expected. induction actual.
+        { apply all_vals_compare_safe. clear Hne Hpos Hleneq. generalize dependent expected. induction actual.
           - intros. simplify_list_eq. symmetry in Hcopylen. rewrite length_zero_iff_nil in Hcopylen. subst. constructor. 
           - intros expected Hexpunboxed Hlenexp.
             simplify_list_eq. destruct expected as [| v' expected].
