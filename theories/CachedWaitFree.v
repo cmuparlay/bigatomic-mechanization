@@ -1559,8 +1559,6 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
     wp_bind (! _)%E.
     iInv readN as "(%ver' & %log' & %actual' & %cache' & %marked_backup₁ & %backup₁ & %backup₁' & %index' & %validated₁ & >Hver & >Hbackup & >Hγ & >%Hunboxed₁ & >#□Hbackup₁ & >%Hindex' & >%Hvalidated' & >%Hlenactual' & >%Hlencache' & >%Hloglen' & Hlog & >%Hlogged' & >●Hlog & >%Hlenᵢ' & >%Hnodup' & >%Hrange' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons' & Hlock & >●Hγ_val & >%Hvalagree₁ & >%Hvaldom₁)" "Hcl".
     wp_load.
-    destruct (extract_result vs) as [ver_proph|] eqn:Hextract; last admit.
-        (* - destruct (decide (Z.of_nat ver = ver_proph)) as [<- | Hneq]. *)
     destruct Hvalidated' as [-> | (-> & HEven & <- & <-)].
     - iMod ("Hcl" with "[-AU Hdst Hp]") as "_".
       { rewrite /cached_wf_inv.
@@ -1625,16 +1623,23 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         simpl.
         iFrame "∗ # %".
         by iLeft.
-    - destruct (decide (Z.of_nat ver = ver_proph)) as [<- | Hneq].
-        (* wp_apply (wp_array_copy_to_persistent with "[$Hdst $□Hbackup₁]").
-        { lia. }
-        { lia. }
-        iIntros "Hdst".
+    - destruct (extract_result vs) as [ver_proph|] eqn:Hextract; first last.
+      { (* Some other value is prophecied: impossible *)
+        iMod ("Hcl" with "[-Hp]") as "_".
+        { rewrite /cached_wf_inv.
+          iExists ver', log', actual', actual', (InjRV #backup₁), backup₁, backup₁, index'.
+          iFrame "∗ # %". by iRight. }
+        iModIntro.
+        rewrite /is_valid.
         wp_pures.
-        iApply ("HΦ" with "[$Hdst]").
-        iFrame "∗ # %".
-        by iRight.
-      wp_pures. *)
+        wp_bind (Resolve _ _ _)%E.
+        iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %marked_backup₂ & %backup₂ & %backup₂' & %index'' & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed₂ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock & >●Hγ_val & >%Hval₁)" "Hcl".
+        wp_apply (wp_resolve with "Hp").
+        { done. }
+        wp_load.
+        iIntros "!> %pvs' -> _".
+        simplify_eq. }
+      destruct (decide (Z.of_nat ver = ver_proph)) as [<- | Hneq].
       + iMod "AU" as (backup'' vs') "[Hγ' [_ Hconsume]]".
         iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
         pose proof Hlogged' as Hlogged₁'.
@@ -1661,16 +1666,6 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         iModIntro.
         rewrite /is_valid.
         wp_pures.
-          (* - rewrite /is_valid /strip.
-            wp_pures.
-            wp_apply (wp_array_copy_to_persistent with "[$Hdst $□Hbackup₁]").
-            { lia. }
-            { lia. }
-            iIntros "Hdst".
-            wp_pures.
-            iApply ("HΦ" with "[$Hdst]").
-            iFrame "∗ # %".
-            by iRight. *)      
         wp_bind (Resolve _ _ _)%E.
         iInv readN as "(%ver'' & %log'' & %actual'' & %cache'' & %marked_backup₂ & %backup₂ & %backup₂' & %index'' & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed₂ & >#□Hbackup₂ & >%Hindex'' & >%Hvalidated'' & >%Hlenactual'' & >%Hlencache'' & >%Hloglen'' & Hlog & >%Hlogged'' & >●Hlog & >%Hlenᵢ'' & >%Hnodup'' & >%Hrange'' & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons'' & Hlock & >●Hγ_val & >%Hval₁)" "Hcl".
         wp_apply (wp_resolve with "Hp").
@@ -1739,34 +1734,85 @@ Lemma gmap_injective_insert `{Countable K, Countable V} (k : K) (v : V) (m : gma
         iApply "HΦ".
         iFrame "∗ % #".
         auto.
-    - iMod ("Hcl" with "[-AU Hdst Hp]") as "_".
-      { rewrite /cached_wf_inv.
-        iExists ver', log', actual', cache', marked_backup₁, backup₁, backup₁', index'.
-        iFrame "∗ # %". }
-      iModIntro.
-      wp_pures.
-
-      
-      + iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+      + iMod ("Hcl" with "[-AU Hdst Hp]") as "_".
         { rewrite /cached_wf_inv.
-          iExists ver'', log'', actual'', cache'', marked_backup₂, backup₂, backup₂', index''.
+          iExists ver', log', actual', actual', (InjRV #backup₁), backup₁, backup₁, index'.
+          iFrame "∗ # %". by iRight. }
+        iModIntro.
+        rewrite /is_valid.
+        wp_pures.
+        wp_bind (Resolve _ _ _)%E.
+        iInv readN as "(%ver₂ & %log₂ & %actual₂ & %cache₂ & %marked_backup₂ & %backup₂ & %backup₂' & %index₂ & %validated₂ & >Hver & >Hbackup & >Hγ & >%Hunboxed₂ & >#□Hbackup₂ & >%Hindex₂ & >%Hvalidated₂ & >%Hlenactual₂ & >%Hlencache₂ & >%Hloglen₂ & Hlog & >%Hlogged₂ & >●Hlog & >%Hlenᵢ₂ & >%Hnodup₂ & >%Hrange₂ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₂ & Hlock & >●Hγ_val & >%Hvalagree₂ & >%Hvaldom₂)" "Hcl".
+        wp_apply (wp_resolve with "Hp").
+        { done. }
+        wp_load.
+        iIntros "!> %pvs' -> Hp".
+        iMod ("Hcl" with "[-AU Hdst]") as "_".
+        { rewrite /cached_wf_inv.
+          iExists ver₂, log₂, actual₂, cache₂, marked_backup₂, backup₂, backup₂', index₂.
           iFrame "∗ # %". }
         iModIntro.
+        simpl in Hextract. simplify_eq.
         wp_pures.
-        rewrite bool_decide_eq_false_2; first last.
-        { by intros [=Heq%(inj Z.of_nat)]. }
+        rewrite bool_decide_eq_false_2; last naive_solver.
         wp_pures.
-        wp_apply (wp_array_copy_to_persistent with "[$Hdst $□Hbackup₁]").
-        { lia. }
-        { lia. }
-        iIntros "Hdst".
-        wp_pures.
-        iApply ("HΦ" with "[$Hdst]").
-        iFrame "∗ # %".
-        rewrite (Nat.Even_div2 ver'); first last.
+        wp_bind (! _)%E.
+        iInv readN as "(%ver₃ & %log₃ & %actual₃ & %cache₃ & %marked_backup₃ & %backup₃ & %backup₃' & %index₃ & %validated₃ & >Hver & >Hbackup & >Hγ & >%Hunboxed₃ & >#□Hbackup₃ & >%Hindex₃ & >%Hvalidated₃ & >%Hlenactual₃ & >%Hlencache₃ & >%Hloglen₃ & Hlog & >%Hlogged₃ & >●Hlog & >%Hlenᵢ₃ & >%Hnodup₃ & >%Hrange₃ & >●Hγᵢ & >●Hγᵥ & >Hcache & >%Hcons₃ & Hlock & >●Hγ_val & >%Hvalagree₃ & >%Hvaldom₃)" "Hcl".
+        wp_load.
+        pose proof Hlogged₃ as Hlogged₃'.
+        rewrite -lookup_fmap lookup_fmap_Some in Hlogged₃'.
+        destruct Hlogged₃' as ([γₜ₂ actual₃'] & Heq & Hlookup₃).
+        simpl in Heq. simplify_eq.
+        iMod (log_frag_alloc backup₃ with "●Hlog") as "[●Hlog #◯Hlog₃]".
         { done. }
-        auto.
-Qed.
+        iMod (index_frag_alloc with "●Hγᵢ") as "[●Hγᵢ #◯Hγᵢ']".
+        { by rewrite last_lookup Hlenᵢ₃ in Hindex₃. }
+        iDestruct (mono_nat_lb_own_valid with "●Hγᵥ Hlb") as %[_ Hle].
+        iPoseProof (mono_nat_lb_own_get with "●Hγᵥ") as "#Hlb₂".
+        iMod "AU" as (backup'' vs') "[Hγ' [_ Hconsume]]".
+        iCombine "Hγ Hγ'" gives %[_ [=<-<-]].
+        iMod ("Hconsume" $! marked_backup₃ dst backup₃ ver with "Hγ'") as "HΦ".
+        destruct Hvalidated₃ as [-> | (-> & HEven₃ & <- & <-)].
+        * iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+          { rewrite /cached_wf_inv.
+            iExists ver₃, log₃, actual₃, cache₃, (InjLV #backup₃), backup₃, backup₃', index₃.
+            iFrame "∗ # %". auto. }
+          iModIntro.
+          rewrite /strip.
+          wp_pures.
+          wp_apply (wp_array_copy_to_persistent with "[$Hdst $□Hbackup₃]").
+          { lia. }
+          { lia. }
+          iIntros "Hdst".
+          wp_pures.
+          iModIntro.
+          iApply ("HΦ" with "[$Hdst]").
+          iFrame "∗ # %".
+          by iRight.
+        * apply Nat.even_spec in HEven₃ as Heven₃.
+          destruct (decide (backup₃ ∈ validated₃)) as [Hinval | Hninval]; first last.
+          { rewrite bool_decide_eq_false_2 // in Hvalagree₃. }
+          iMod (validated_auth_frag_alloc with "●Hγ_val") as "[●Hγ_val #◯Hγ_val₂]".
+          { done. } 
+          iMod ("Hcl" with "[-HΦ Hdst]") as "_".
+          { rewrite /cached_wf_inv.
+            iExists ver₃, log₃, actual₃, actual₃, (InjRV #backup₃), backup₃, backup₃, index₃.
+            iFrame "∗ # %". iRight. auto. }
+          iModIntro.
+          rewrite /strip.
+          wp_pures.
+          wp_apply (wp_array_copy_to_persistent with "[$Hdst $□Hbackup₃]").
+          { lia. }
+          { lia. }
+          iIntros "Hdst".
+          wp_pures.
+          iModIntro.
+          iApply ("HΦ" with "[$Hdst]").
+          rewrite -(Nat.Even_div2 ver₃) //.
+          simpl.
+          iFrame "∗ # %".
+          by iLeft.
+  Qed.
 
   (* It is possible to linearize pending writers while maintaing the registry invariant *)
   Lemma linearize_cas γ (lactual lactual' : loc) (actual actual' : list val) requests (log : gmap loc (gname * list val)) (γₜ : gname) :
