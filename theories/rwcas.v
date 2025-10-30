@@ -46,7 +46,7 @@ Class rwcasG Σ := {
   rwcas_tokenG :: tokenG Σ;
   rwcas_ghost_varG_bool :: ghost_varG Σ bool;
   rwcas_ghost_varG_Z :: ghost_varG Σ Z;
-  rwcas_heapGS :: heapGS Σ;
+  rwcas_heapGS :: heapG Σ;
 }.
 
 Section rwcas.

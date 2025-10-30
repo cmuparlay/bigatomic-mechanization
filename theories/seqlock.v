@@ -63,13 +63,13 @@ Definition history := gmap nat $ agree $ list val.
 Definition historyUR := authUR $ gmapUR nat $ agreeR $ listO valO.
 
 Class seqlockG (Σ : gFunctors) := {
-  seqlock_heapGS :: heapGS Σ;
+  seqlock_heapGS :: heapG Σ;
   seqlock_historyUR :: inG Σ historyUR;
   seqlock_mono_natG :: mono_natG Σ;
 }.
 
 Section seqlock.
-  Context `{!seqlockG Σ, !heapGS Σ}.
+  Context `{!seqlockG Σ, !heapG Σ}.
 
   Context (N : namespace).
 
@@ -109,7 +109,7 @@ Section seqlock.
   Proof.
     iIntros (Hlookup) "Hauth".
     iMod (own_update with "Hauth") as "[H● H◯]".
-    { apply auth_update_dfrac_alloc with (b := {[i := to_agree value]}).
+    { apply auth_update_frac_alloc with (b := {[i := to_agree value]}).
       { apply _. }
       apply singleton_included_l with (i := i).
       exists (to_agree value). split; last done.
@@ -123,7 +123,7 @@ Section seqlock.
         ⌜history !! i = Some value⌝.
   Proof.
     iIntros "H● H◯".
-    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_dfrac_valid_discrete.
+    iCombine "H● H◯" gives %(_ & (y & Hlookup & [[=] | (a & b & [=<-] & [=<-] & H)]%option_included_total)%singleton_included_l & Hvalid)%auth_both_frac_valid_discrete.
     assert (✓ y) as Hy.
     { by eapply lookup_valid_Some; eauto. }
     pose proof (to_agree_uninj y Hy) as [vs'' Hvs''].
@@ -291,7 +291,7 @@ Section seqlock.
         ⌜history = history'⌝.
   Proof.
     iIntros "H H'".
-    iCombine "H H'" gives %Hagree%auth_auth_dfrac_op_inv.
+    iCombine "H H'" gives %Hagree%auth_auth_frac_op_inv.
     iPureIntro.
     apply list_eq.
     intros i.
